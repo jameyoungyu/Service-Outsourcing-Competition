@@ -107,8 +107,31 @@ def test_copilot_contract_has_a_whitelisted_plan() -> None:
 
 
 def test_api_runs_real_simulation_and_arx_baseline(tmp_path, monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    # The ARX route persists a ProcessingRun for report lineage, so it needs a session.
+    import asyncio
+    from collections.abc import AsyncIterator
+
+    from app.core.db import get_session
+    from app.models import Base
+    from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+
+    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'contract.db'}")
+    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+
+    async def prepare() -> None:
+        async with engine.begin() as connection:
+            await connection.run_sync(Base.metadata.create_all)
+
+    asyncio.run(prepare())
+
+    async def session_override() -> AsyncIterator[AsyncSession]:
+        async with session_factory() as session:
+            yield session
+
     monkeypatch.setattr("app.api.routes.get_settings", lambda: Settings(artifact_root=tmp_path))
-    with TestClient(create_app()) as client:
+    app = create_app()
+    app.dependency_overrides[get_session] = session_override
+    with TestClient(app) as client:
         simulation = client.post(
             "/api/v1/simulation/generate",
             json={

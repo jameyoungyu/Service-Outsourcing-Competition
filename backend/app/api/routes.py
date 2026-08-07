@@ -64,8 +64,7 @@ from app.services.dataset_service import (
 from app.services.dataset_service import (
     get_dataset_versions as get_dataset_versions_service,
 )
-from app.services.identification_service import ArxDomainError
-from app.services.identification_service import fit_arx as fit_arx_service
+from app.services.modeling_service import ModelingDomainError, fit_arx_on_version
 from app.services.preprocessing_analysis_service import (
     AnalysisDomainError,
     run_collinearity_analysis,
@@ -475,34 +474,27 @@ async def analyze_collinearity(
     response_model=SuccessEnvelope[ArxFitData],
     responses=ERROR_RESPONSES,
 )
-async def fit_arx(request: Request, payload: ArxFitRequest) -> SuccessEnvelope[ArxFitData]:
+async def fit_arx(
+    request: Request,
+    payload: ArxFitRequest,
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> SuccessEnvelope[ArxFitData]:
+    """Identify ARX on any version and accept it on free-run FIT, stability and priors."""
+
     try:
-        result = fit_arx_service(payload, artifact_root=get_settings().artifact_root)
-    except ArxDomainError as error:
-        status_code = 404 if error.code in {"DATASET_VERSION_NOT_FOUND"} else 400
+        data = await fit_arx_on_version(
+            session,
+            payload=payload,
+            artifact_root=get_settings().artifact_root,
+        )
+    except ModelingDomainError as error:
         raise AppError(
             error.code,
             error.message,
-            status_code=status_code,
+            status_code=error.status_code,
             details=error.details,
         ) from error
-    return success(
-        request,
-        ArxFitData(
-            model_id=result.model_id,
-            task=completed_task(stage="fit_arx", message="ARX 基线辨识与多分区评价已完成。"),
-            estimator=result.estimator,
-            dataset_id=result.dataset_id,
-            version_id=result.version_id,
-            coefficients=result.coefficients,
-            a_coefficients=result.a_coefficients,
-            b_coefficients=result.b_coefficients,
-            metrics=result.metrics,
-            plot_data=result.plot_data,
-            residual_diagnostics=result.residual_diagnostics,
-            artifact_uri=result.artifact_uri,
-        ),
-    )
+    return success(request, data)
 
 
 @router.post(

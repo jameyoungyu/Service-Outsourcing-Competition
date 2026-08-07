@@ -1115,6 +1115,7 @@
           "Modeling"
         ],
         "summary": "Run MISO ARX identification and chronological partitioned evaluation",
+        "description": "Identify ARX on any version and accept it on free-run FIT, stability and priors.",
         "operationId": "fit_arx_api_v1_modeling_arx_fit_post",
         "requestBody": {
           "content": {
@@ -1631,6 +1632,36 @@
               }
             ],
             "title": "Artifact Uri"
+          },
+          "validation": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ModelValidationData"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "prior_violations": {
+            "items": {
+              "$ref": "#/components/schemas/PriorViolation"
+            },
+            "type": "array",
+            "title": "Prior Violations"
+          },
+          "training_rows": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Training Rows",
+            "default": 0
+          },
+          "free_run_series": {
+            "items": {
+              "type": "number"
+            },
+            "type": "array",
+            "title": "Free Run Series"
           }
         },
         "additionalProperties": false,
@@ -1769,6 +1800,46 @@
             "exclusiveMinimum": 0.0,
             "title": "Validation Ratio",
             "default": 0.2
+          },
+          "training_sample_indices": {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array",
+            "title": "Training Sample Indices"
+          },
+          "gain_sign": {
+            "additionalProperties": {
+              "type": "string",
+              "enum": [
+                "positive",
+                "negative"
+              ]
+            },
+            "type": "object",
+            "title": "Gain Sign"
+          },
+          "gain_bounds": {
+            "additionalProperties": {
+              "prefixItems": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "number"
+                }
+              ],
+              "type": "array",
+              "maxItems": 2,
+              "minItems": 2
+            },
+            "type": "object",
+            "title": "Gain Bounds"
+          },
+          "require_stable": {
+            "type": "boolean",
+            "title": "Require Stable",
+            "default": false
           }
         },
         "additionalProperties": false,
@@ -1914,6 +1985,61 @@
               }
             ],
             "title": "Nrmse"
+          },
+          "train_free_run_fit": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Train Free Run Fit"
+          },
+          "val_free_run_fit": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Val Free Run Fit"
+          },
+          "test_free_run_fit": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Test Free Run Fit"
+          },
+          "aic": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Aic"
+          },
+          "bic": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bic"
           }
         },
         "additionalProperties": false,
@@ -4337,6 +4463,103 @@
         "type": "object",
         "title": "LivenessData"
       },
+      "ModelValidationData": {
+        "properties": {
+          "one_step_fit": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "One Step Fit"
+          },
+          "free_run_fit": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Free Run Fit"
+          },
+          "free_run_rmse": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Free Run Rmse"
+          },
+          "fit_gap": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fit Gap"
+          },
+          "stable": {
+            "type": "boolean",
+            "title": "Stable",
+            "default": true
+          },
+          "max_pole_modulus": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Pole Modulus"
+          },
+          "steady_state_gains": {
+            "additionalProperties": {
+              "type": "number"
+            },
+            "type": "object",
+            "title": "Steady State Gains"
+          },
+          "residual_whiteness_ratio": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Residual Whiteness Ratio"
+          },
+          "n_samples": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "N Samples",
+            "default": 0
+          },
+          "partition": {
+            "type": "string",
+            "title": "Partition",
+            "default": "validation"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "ModelValidationData",
+        "description": "Control-relevant acceptance evidence.\n\n``free_run_fit`` is the primary metric: an APC controller predicts many steps ahead,\nso one-step FIT — which is fed the measured previous output — flatters any model on an\nautocorrelated process. ``one_step_fit`` is kept as a diagnostic, and a large\n``fit_gap`` is itself the signal that the model is coasting on persistence."
+      },
       "OptimizationStartData": {
         "properties": {
           "study_id": {
@@ -4588,6 +4811,47 @@
         "additionalProperties": false,
         "type": "object",
         "title": "PageInfo"
+      },
+      "PriorViolation": {
+        "properties": {
+          "variable": {
+            "type": "string",
+            "title": "Variable"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "gain_sign",
+              "gain_bounds",
+              "stability"
+            ],
+            "title": "Kind"
+          },
+          "expected": {
+            "type": "string",
+            "title": "Expected"
+          },
+          "actual": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Actual"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "variable",
+          "kind",
+          "expected"
+        ],
+        "title": "PriorViolation",
+        "description": "One engineering prior the identified model failed."
       },
       "QualityIssue": {
         "properties": {

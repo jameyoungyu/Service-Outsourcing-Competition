@@ -74,31 +74,77 @@
           <div class="industrial-card-title">
             <el-icon><Trophy /></el-icon> 辨识结果与多分区验证指标
           </div>
-          <el-tag type="success">验证集 FIT: {{ fitResult.metrics.val_fit }}%</el-tag>
+          <el-tag type="success">验证集自由仿真 FIT: {{ pct(fitResult.metrics.val_free_run_fit) }}</el-tag>
         </div>
 
         <div class="metrics-grid">
-          <div class="metric-box">
-            <div class="name">训练集 R²</div>
-            <div class="val">{{ fitResult.metrics.train_r2 }}%</div>
-          </div>
-          <div class="metric-box">
-            <div class="name">训练集 FIT</div>
-            <div class="val">{{ fitResult.metrics.train_fit }}%</div>
-          </div>
           <div class="metric-box highlight">
-            <div class="name">验证集 FIT (核心盲测)</div>
-            <div class="val">{{ fitResult.metrics.val_fit }}%</div>
+            <div class="name">验证集自由仿真 FIT (主指标)</div>
+            <div class="val">{{ pct(fitResult.metrics.val_free_run_fit) }}</div>
           </div>
           <div class="metric-box">
-            <div class="name">测试集 FIT (全期终考)</div>
-            <div class="val">{{ fitResult.metrics.test_fit }}%</div>
+            <div class="name">测试集自由仿真 FIT</div>
+            <div class="val">{{ pct(fitResult.metrics.test_free_run_fit) }}</div>
           </div>
           <div class="metric-box">
-            <div class="name">均方根误差 (RMSE)</div>
-            <div class="val">{{ fitResult.metrics.rmse }}</div>
+            <div class="name">验证集一步预测 FIT (诊断)</div>
+            <div class="val">{{ pct(fitResult.metrics.val_fit) }}</div>
+          </div>
+          <div class="metric-box" :class="{ warn: (fitResult.validation?.fit_gap ?? 0) > 10 }">
+            <div class="name">FIT 差值 (一步 − 自由仿真)</div>
+            <div class="val">{{ num(fitResult.validation?.fit_gap) }}</div>
+          </div>
+          <div class="metric-box">
+            <div class="name">测试集 RMSE</div>
+            <div class="val">{{ num(fitResult.metrics.rmse) }}</div>
+          </div>
+          <div class="metric-box">
+            <div class="name">训练样本数</div>
+            <div class="val">{{ fitResult.training_rows }}</div>
           </div>
         </div>
+
+        <el-alert
+          v-if="(fitResult.validation?.fit_gap ?? 0) > 10"
+          type="warning"
+          :closable="false"
+          show-icon
+          class="alert-gap"
+        >
+          <template #title>
+            一步预测 FIT 显著高于自由仿真 FIT（差值
+            {{ num(fitResult.validation?.fit_gap) }}），说明模型主要依赖输出自相关
+            “抄上一时刻”，多步预测能力不足，不建议直接用于 APC 部署。
+          </template>
+        </el-alert>
+
+        <el-descriptions :column="4" border size="small" style="margin-top: 14px">
+          <el-descriptions-item label="模型稳定性">
+            <el-tag :type="fitResult.validation?.stable ? 'success' : 'danger'" size="small">
+              {{ fitResult.validation?.stable ? "稳定" : "不稳定" }}
+            </el-tag>
+          </el-descriptions-item>
+          <el-descriptions-item label="最大极点模">
+            {{ num(fitResult.validation?.max_pole_modulus) }}
+          </el-descriptions-item>
+          <el-descriptions-item label="残差白度">
+            {{ pct(residualWhitenessPercent) }}
+          </el-descriptions-item>
+          <el-descriptions-item label="AIC / BIC">
+            {{ num(fitResult.metrics.aic) }} / {{ num(fitResult.metrics.bic) }}
+          </el-descriptions-item>
+          <el-descriptions-item label="稳态增益" :span="4">
+            <el-tag
+              v-for="(gain, name) in fitResult.validation?.steady_state_gains ?? {}"
+              :key="name"
+              size="small"
+              effect="plain"
+              class="gain-tag"
+            >
+              K({{ name }}) = {{ num(gain) }}
+            </el-tag>
+          </el-descriptions-item>
+        </el-descriptions>
 
         <el-divider />
 
@@ -186,13 +232,33 @@ const handleFit = async () => {
   try {
     const res = await fitARXModel(form);
     fitResult.value = res;
-    ElMessage.success(`ARX 系统辨识成功！验证集 FIT = ${res.metrics.val_fit}%`);
+    ElMessage.success(
+      `ARX 辨识成功：验证集自由仿真 FIT = ${pct(res.metrics.val_free_run_fit)}`
+    );
   } catch (err: any) {
+    fitResult.value = null;
     ElMessage.error(`ARX 辨识失败 [${err.code || "ERR"}]: ${err.message}`);
   } finally {
     loading.value = false;
   }
 };
+
+const residualWhitenessPercent = computed(() => {
+  const ratio = fitResult.value?.validation?.residual_whiteness_ratio;
+  return ratio === null || ratio === undefined ? null : ratio * 100;
+});
+
+const pct = (value: number | null | undefined) =>
+  value === null || value === undefined || !Number.isFinite(value)
+    ? "—"
+    : `${value.toFixed(2)}%`;
+
+const num = (value: number | null | undefined) =>
+  value === null || value === undefined || !Number.isFinite(value)
+    ? "—"
+    : Math.abs(value) >= 10000
+      ? value.toExponential(2)
+      : value.toFixed(4);
 
 const plotOptions = computed(() => {
   if (!fitResult.value) return {};
@@ -201,7 +267,7 @@ const plotOptions = computed(() => {
 
   return {
     tooltip: { trigger: "axis" },
-    legend: { data: ["实测输出 y(t)", "辨识预测 ŷ(t)"] },
+    legend: { data: ["实测输出 y(t)", "一步预测 ŷ(t)", "自由仿真 ŷ_sim(t)"] },
     grid: { left: "3%", right: "4%", bottom: "10%", containLabel: true },
     xAxis: { type: "category", data: xData },
     yAxis: { type: "value" },
@@ -213,11 +279,19 @@ const plotOptions = computed(() => {
         data: data.y_true,
       },
       {
-        name: "辨识预测 ŷ(t)",
+        name: "一步预测 ŷ(t)",
         type: "line",
         color: "#E76F51",
+        showSymbol: false,
         lineStyle: { type: "dashed" },
         data: data.y_pred,
+      },
+      {
+        name: "自由仿真 ŷ_sim(t)",
+        type: "line",
+        color: "#2A9D8F",
+        showSymbol: false,
+        data: fitResult.value.free_run_series,
       },
     ],
   };
@@ -258,6 +332,18 @@ const plotOptions = computed(() => {
   border-radius: 6px;
   border: 1px solid var(--border-light);
   text-align: center;
+}
+
+.metric-box.warn {
+  border-color: #E76F51;
+}
+
+.alert-gap {
+  margin-top: 12px;
+}
+
+.gain-tag {
+  margin-right: 6px;
 }
 
 .metric-box.highlight {

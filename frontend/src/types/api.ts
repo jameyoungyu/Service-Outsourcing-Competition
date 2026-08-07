@@ -396,26 +396,82 @@ export interface ARXFitRequest {
   ridge_alpha?: number;
 }
 
+export interface ArxMetrics {
+  train_r2: number | null;
+  train_fit: number | null;
+  train_rmse: number | null;
+  val_r2: number | null;
+  val_fit: number | null;
+  val_rmse: number | null;
+  test_r2: number | null;
+  test_fit: number | null;
+  test_rmse: number | null;
+  rmse: number | null;
+  mae: number | null;
+  nrmse: number | null;
+  /** Free-run (infinite-step) simulation FIT — the primary acceptance metric. */
+  train_free_run_fit: number | null;
+  val_free_run_fit: number | null;
+  test_free_run_fit: number | null;
+  aic: number | null;
+  bic: number | null;
+}
+
+export interface ModelValidationData {
+  one_step_fit: number | null;
+  free_run_fit: number | null;
+  free_run_rmse: number | null;
+  /** one_step_fit - free_run_fit. A large gap means the model is coasting on persistence. */
+  fit_gap: number | null;
+  stable: boolean;
+  max_pole_modulus: number | null;
+  steady_state_gains: Record<string, number>;
+  residual_whiteness_ratio: number | null;
+  n_samples: number;
+  partition: string;
+}
+
+export interface PriorViolation {
+  variable: string;
+  kind: "gain_sign" | "gain_bounds" | "stability";
+  expected: string;
+  actual: number | null;
+}
+
+export interface SplitIndices {
+  train_end: number;
+  val_end: number;
+  test_end: number;
+}
+
 export interface ARXFitResponse {
   model_id: string;
+  task: TaskResource;
+  estimator: "ols" | "ridge";
+  dataset_id: string | null;
+  version_id: string | null;
+  coefficients: Record<string, number>;
   a_coefficients: number[];
   b_coefficients: Record<string, number[]>;
-  metrics: {
-    train_r2: number;
-    train_fit: number;
-    val_r2: number;
-    val_fit: number;
-    test_r2: number;
-    test_fit: number;
-    rmse: number;
-  };
+  metrics: ArxMetrics;
   plot_data: {
     indices: number[];
     y_true: number[];
     y_pred: number[];
     residuals: number[];
-    split_indices: { train: number; val: number; test: number };
+    splits: SplitIndices;
+    split_indices: SplitIndices | null;
   };
+  residual_diagnostics: {
+    acf_values: number[];
+    confidence_interval: number | null;
+  };
+  artifact_uri: string | null;
+  validation: ModelValidationData | null;
+  prior_violations: PriorViolation[];
+  training_rows: number;
+  /** Model output driven by inputs alone, aligned with plot_data.indices. */
+  free_run_series: number[];
 }
 
 export interface OptunaStartRequest {
