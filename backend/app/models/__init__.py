@@ -7,6 +7,11 @@ from app.models.dataset import (
     ProcessingRun,
 )
 from app.models.operation_log import OperationLog
+from app.models.optimization import (
+    OptimizationStudy,
+    OptimizationTrialRecord,
+    StrategyMemory,
+)
 
 __all__ = [
     "Base",
@@ -15,5 +20,8 @@ __all__ = [
     "DatasetProfileRecord",
     "DatasetVersion",
     "OperationLog",
+    "OptimizationStudy",
+    "OptimizationTrialRecord",
     "ProcessingRun",
+    "StrategyMemory",
 ]

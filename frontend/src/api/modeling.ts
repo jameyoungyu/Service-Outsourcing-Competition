@@ -4,6 +4,7 @@ import type {
   ARXFitResponse,
   OptunaStartRequest,
   OptunaStatusResponse,
+  TaskResource,
 } from "../types/api";
 
 export const fitARXModel = (req: ARXFitRequest): Promise<ARXFitResponse> =>
@@ -11,7 +12,7 @@ export const fitARXModel = (req: ARXFitRequest): Promise<ARXFitResponse> =>
 
 export const startOptunaStudy = (
   req: OptunaStartRequest
-): Promise<{ study_id: string; status: string }> =>
+): Promise<{ study_id: string; task: TaskResource }> =>
   apiClient.post("/optimization/optuna/start", req);
 
 export const getOptunaStatus = (studyId: string): Promise<OptunaStatusResponse> =>

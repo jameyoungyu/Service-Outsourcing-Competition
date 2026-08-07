@@ -475,29 +475,59 @@ export interface ARXFitResponse {
 }
 
 export interface OptunaStartRequest {
-  dataset_id: string;
-  n_trials?: number;
-  target_metric?: "fit" | "r2" | "rmse";
+  version_id: string;
+  input_columns: string[];
+  output_column: string;
+  max_trials?: number;
+  timeout_seconds?: number | null;
   search_space?: Record<string, any>;
+  random_seed?: number;
 }
 
 export interface OptunaTrialItem {
   trial_id: number;
-  value: number;
+  /** Failed and pruned trials are returned too; they are never hidden. */
+  state: "queued" | "running" | "complete" | "pruned" | "failed";
+  value: number | null;
   params: Record<string, any>;
-  state: "COMPLETE" | "PRUNED" | "FAIL";
+  created_at: string;
+  finished_at: string | null;
+  error_code: string | null;
+}
+
+export interface OptunaStatistics {
+  hits: number;
+  misses: number;
+  lookups: number;
+  hit_rate: number;
+  entries: number;
+  total_trials: number;
+  completed_trials: number;
+  failed_trials: number;
+  pruned_trials: number;
+  mean_trial_ms: number;
+  warm_start_trials: number;
+  /** Model fits performed across all trials. */
+  structure_evaluations: number;
+  /** Distinct segment selections actually computed. */
+  selection_computations: number;
+  /** structure_evaluations / selection_computations — the amortisation factor. */
+  evaluations_per_selection: number;
 }
 
 export interface OptunaStatusResponse {
   study_id: string;
-  status: "RUNNING" | "COMPLETED" | "CANCELLED" | "FAILED";
-  current_trial: number;
-  total_trials: number;
-  best_value: number;
-  best_params: Record<string, any>;
+  task: TaskResource;
   trials: OptunaTrialItem[];
-  convergence_curve: number[];
+  best_trial_id: number | null;
+  best_value: number | null;
+  /** Best-so-far objective after each trial; monotone non-decreasing by construction. */
+  best_curve: (number | null)[];
   param_importances: Record<string, number>;
+  statistics: Partial<OptunaStatistics>;
+  best_params: Record<string, any>;
+  /** Set when this study reused parameters learned from a different dataset. */
+  warm_started_from: string | null;
 }
 
 // Copilot API Types

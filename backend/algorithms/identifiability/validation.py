@@ -27,6 +27,11 @@ from algorithms.identifiability.regressor import (
     build_regressor,
 )
 
+# How far past the measured output range a free-run trajectory may wander before it is
+# clamped. Large enough that a merely poor model is never distorted, small enough that a
+# diverging one cannot overflow.
+DIVERGENCE_BOUND_FACTOR = 1e3
+
 
 @dataclass(frozen=True)
 class ModelValidation:
@@ -157,13 +162,26 @@ def free_run_simulate(
         for lag in range(structure.nb[column]):
             contribution[index] += coefficients[lag] * signal[index - delay - lag]
 
+    # An unstable A(q) makes the recursion grow without bound. Left alone it overflows to
+    # inf within a few hundred steps and poisons every downstream statistic with NaN, so
+    # the trajectory is clamped to a generous multiple of the observed output range. The
+    # resulting FIT is terrible, which is the correct verdict on a diverging model, and it
+    # is a finite number the optimiser can rank instead of a crash.
+    finite_measured = measured[np.isfinite(measured)]
+    scale = float(np.max(np.abs(finite_measured))) if finite_measured.size else 1.0
+    bound = max(scale, 1.0) * DIVERGENCE_BOUND_FACTOR
+
     simulated = measured.copy()
     for time_index in range(first, last):
         value = float(contribution[time_index])
         for lag in range(1, structure.na + 1):
             value -= a_values[lag - 1] * simulated[time_index - lag]
         if not np.isfinite(value):
-            value = float(simulated[time_index - 1])
+            value = float(np.sign(simulated[time_index - 1]) or 1.0) * bound
+        elif value > bound:
+            value = bound
+        elif value < -bound:
+            value = -bound
         simulated[time_index] = value
 
     return measured[first:last], simulated[first:last]

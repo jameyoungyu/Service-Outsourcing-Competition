@@ -1187,6 +1187,7 @@
           "Optimization"
         ],
         "summary": "Start a cancellable Optuna pipeline-optimization study",
+        "description": "Run the closed loop: gate, select, identify, score on free-run FIT, repeat.",
         "operationId": "start_optimization_api_v1_optimization_optuna_start_post",
         "requestBody": {
           "content": {
@@ -4700,6 +4701,28 @@
             },
             "type": "object",
             "title": "Param Importances"
+          },
+          "statistics": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Statistics"
+          },
+          "best_params": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Best Params"
+          },
+          "warm_started_from": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Warm Started From"
           }
         },
         "additionalProperties": false,

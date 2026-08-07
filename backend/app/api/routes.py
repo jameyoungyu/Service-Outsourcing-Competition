@@ -65,6 +65,11 @@ from app.services.dataset_service import (
     get_dataset_versions as get_dataset_versions_service,
 )
 from app.services.modeling_service import ModelingDomainError, fit_arx_on_version
+from app.services.optimization_service import (
+    OptimizationDomainError,
+    get_optimization_status,
+    start_optimization_study,
+)
 from app.services.preprocessing_analysis_service import (
     AnalysisDomainError,
     run_collinearity_analysis,
@@ -506,12 +511,26 @@ async def fit_arx(
     responses=ERROR_RESPONSES,
 )
 async def start_optimization(
-    request: Request, payload: OptimizationStartRequest
+    request: Request,
+    payload: OptimizationStartRequest,
+    session: Annotated[AsyncSession, Depends(get_session)],
 ) -> SuccessEnvelope[OptimizationStartData]:
-    return success(
-        request,
-        OptimizationStartData(study_id=new_id(), task=queued_task(stage="optimize_pipeline")),
-    )
+    """Run the closed loop: gate, select, identify, score on free-run FIT, repeat."""
+
+    try:
+        data = await start_optimization_study(
+            session,
+            payload=payload,
+            artifact_root=get_settings().artifact_root,
+        )
+    except OptimizationDomainError as error:
+        raise AppError(
+            error.code,
+            error.message,
+            status_code=error.status_code,
+            details=error.details,
+        ) from error
+    return success(request, data)
 
 
 @router.get(
@@ -522,20 +541,20 @@ async def start_optimization(
     responses=ERROR_RESPONSES,
 )
 async def optimization_status(
-    request: Request, study_id: Annotated[UUID, Path(description="Optuna study UUID。")]
+    request: Request,
+    study_id: Annotated[UUID, Path(description="Optuna study UUID。")],
+    session: Annotated[AsyncSession, Depends(get_session)],
 ) -> SuccessEnvelope[OptimizationStatusData]:
-    return success(
-        request,
-        OptimizationStatusData(
-            study_id=study_id,
-            task=queued_task(stage="optimize_pipeline"),
-            trials=[],
-            best_trial_id=None,
-            best_value=None,
-            best_curve=[],
-            param_importances={},
-        ),
-    )
+    try:
+        data = await get_optimization_status(session, study_id=study_id)
+    except OptimizationDomainError as error:
+        raise AppError(
+            error.code,
+            error.message,
+            status_code=error.status_code,
+            details=error.details,
+        ) from error
+    return success(request, data)
 
 
 @router.post(
