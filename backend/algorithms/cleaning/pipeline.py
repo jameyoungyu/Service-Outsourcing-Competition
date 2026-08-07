@@ -25,7 +25,7 @@ class CleaningContext:
     headers: list[str]
     timestamp_column: str
     timestamps: list[datetime]
-    rows: list[Mapping[str, str]]
+    rows: Sequence[Mapping[str, str]]
     inferred_types: Mapping[str, str]
 
 
@@ -129,7 +129,9 @@ class CleaningPipeline(AlgorithmTool[CleaningContext, CleaningParameters, Cleani
             frozen_segments.extend(_frozen_segments(column, smoothed))
 
         if duplicate_count:
-            warnings.append(f"已按 {parameters.duplicate_strategy} 规则处理 {duplicate_count} 个重复时间戳。")
+            warnings.append(
+                f"已按 {parameters.duplicate_strategy} 规则处理 {duplicate_count} 个重复时间戳。"
+            )
         remaining_missing = sum(
             value is None for values in cleaned_numeric.values() for value in values
         )
@@ -143,9 +145,9 @@ class CleaningPipeline(AlgorithmTool[CleaningContext, CleaningParameters, Cleani
             if column == context.timestamp_column:
                 continue
             if column in cleaned_numeric:
-                values[column] = cleaned_numeric[column]
+                values[column] = list(cleaned_numeric[column])
             else:
-                values[column] = aligned.categorical[column]
+                values[column] = list(aligned.categorical[column])
         return CleaningResult(
             timestamps=aligned.timestamps,
             values=values,
@@ -161,7 +163,9 @@ class CleaningPipeline(AlgorithmTool[CleaningContext, CleaningParameters, Cleani
 def _normalise_timestamps(
     context: CleaningContext, duplicate_strategy: DuplicateStrategy
 ) -> tuple[_NormalisedFrame, int]:
-    ordered_indices = sorted(range(len(context.timestamps)), key=lambda index: context.timestamps[index])
+    ordered_indices = sorted(
+        range(len(context.timestamps)), key=lambda index: context.timestamps[index]
+    )
     groups: list[list[int]] = []
     for index in ordered_indices:
         if not groups or context.timestamps[index] != context.timestamps[groups[-1][0]]:
@@ -171,24 +175,31 @@ def _normalise_timestamps(
     numeric_columns = [
         column
         for column in context.headers
-        if column != context.timestamp_column and context.inferred_types.get(column) in {"float", "integer"}
+        if column != context.timestamp_column
+        and context.inferred_types.get(column) in {"float", "integer"}
     ]
     categorical_columns = [
-        column for column in context.headers if column not in numeric_columns and column != context.timestamp_column
+        column
+        for column in context.headers
+        if column not in numeric_columns and column != context.timestamp_column
     ]
-    numeric = {column: [] for column in numeric_columns}
-    categorical = {column: [] for column in categorical_columns}
+    numeric: dict[str, list[float | None]] = {column: [] for column in numeric_columns}
+    categorical: dict[str, list[str | None]] = {column: [] for column in categorical_columns}
     timestamps: list[datetime] = []
     for group in groups:
         timestamps.append(context.timestamps[group[0]])
         for column in numeric_columns:
-            source_values = [_to_float(context.rows[index].get(column)) for index in group]
-            numeric[column].append(_aggregate_numeric(source_values, duplicate_strategy))
+            numeric_source = [_to_float(context.rows[index].get(column)) for index in group]
+            numeric[column].append(_aggregate_numeric(numeric_source, duplicate_strategy))
         for column in categorical_columns:
-            source_values = [_to_categorical(context.rows[index].get(column)) for index in group]
-            categorical[column].append(_aggregate_categorical(source_values))
+            categorical_source = [
+                _to_categorical(context.rows[index].get(column)) for index in group
+            ]
+            categorical[column].append(_aggregate_categorical(categorical_source))
     duplicate_count = sum(len(group) - 1 for group in groups)
-    return _NormalisedFrame(timestamps=timestamps, numeric=numeric, categorical=categorical), duplicate_count
+    return _NormalisedFrame(
+        timestamps=timestamps, numeric=numeric, categorical=categorical
+    ), duplicate_count
 
 
 def _resample(frame: _NormalisedFrame, period_seconds: float) -> _NormalisedFrame:
@@ -197,7 +208,9 @@ def _resample(frame: _NormalisedFrame, period_seconds: float) -> _NormalisedFram
     start = frame.timestamps[0]
     duration = (frame.timestamps[-1] - start).total_seconds()
     target_count = int(floor(duration / period_seconds + 1e-9)) + 1
-    timestamps = [start + timedelta(seconds=index * period_seconds) for index in range(target_count)]
+    timestamps = [
+        start + timedelta(seconds=index * period_seconds) for index in range(target_count)
+    ]
     bins: list[list[int]] = [[] for _ in timestamps]
     for source_index, timestamp in enumerate(frame.timestamps):
         ratio = (timestamp - start).total_seconds() / period_seconds
@@ -210,9 +223,10 @@ def _resample(frame: _NormalisedFrame, period_seconds: float) -> _NormalisedFram
             _mean_finite([values[index] for index in bucket]) if bucket else None for bucket in bins
         ]
     categorical: dict[str, list[str | None]] = {}
-    for column, values in frame.categorical.items():
+    for column, labels in frame.categorical.items():
         categorical[column] = [
-            _first_present([values[index] for index in bucket]) if bucket else None for bucket in bins
+            _first_present([labels[index] for index in bucket]) if bucket else None
+            for bucket in bins
         ]
     return _NormalisedFrame(timestamps=timestamps, numeric=numeric, categorical=categorical)
 
@@ -298,7 +312,9 @@ def _hampel_outliers(
             continue
         local = [
             candidate
-            for candidate in values[max(0, index - half_window) : min(len(values), index + half_window + 1)]
+            for candidate in values[
+                max(0, index - half_window) : min(len(values), index + half_window + 1)
+            ]
             if candidate is not None
         ]
         if len(local) < 3:
@@ -308,7 +324,9 @@ def _hampel_outliers(
         if isclose(mad, 0.0):
             if not isclose(value, median, rel_tol=1e-9, abs_tol=1e-12):
                 detected.append(
-                    DetectedOutlier(index=index, median=median, lower_bound=median, upper_bound=median)
+                    DetectedOutlier(
+                        index=index, median=median, lower_bound=median, upper_bound=median
+                    )
                 )
             continue
         robust_sigma = 1.4826 * mad
@@ -344,7 +362,9 @@ def _treat_outliers(
         if result[outlier.index] != original:
             changes.add(outlier.index)
     if strategy == "linear_interpolate" and outliers:
-        resolved_method: InterpolationMethod = "linear" if interpolation == "none" else interpolation
+        resolved_method: InterpolationMethod = (
+            "linear" if interpolation == "none" else interpolation
+        )
         interpolated, interpolation_changes = _interpolate_missing(
             result,
             method=resolved_method,
@@ -368,7 +388,11 @@ def _smooth(
         if value is None:
             continue
         start, end = max(0, index - half_window), min(len(values), index + half_window + 1)
-        local = [(position, candidate) for position, candidate in enumerate(values[start:end], start) if candidate is not None]
+        local = [
+            (position, candidate)
+            for position, candidate in enumerate(values[start:end], start)
+            if candidate is not None
+        ]
         if len(local) < 3:
             continue
         if method == "moving_average":

@@ -66,6 +66,20 @@ class SegmentRequest(Schema):
     min_segment_length: int = Field(default=100, ge=1)
     min_snr_db: float = 0.0
     max_segments: int = Field(default=10, ge=1, le=100)
+    dataset_id: UUID | None = None
+    stride: int | None = Field(default=None, ge=1)
+    # Provisional ARX structure used only to build the information matrix. Delays are
+    # refined later; selection is not very sensitive to them, but the orders must be
+    # large enough that the regressor spans the directions we care about.
+    na: int = Field(default=2, ge=1, le=20)
+    nb: int = Field(default=2, ge=1, le=20)
+    nk: int = Field(default=0, ge=0, le=1_000)
+    train_ratio: float = Field(default=0.7, gt=0, lt=1)
+    ridge: float = Field(default=1e-6, gt=0)
+    max_missing_ratio: float = Field(default=0.20, ge=0, le=1)
+    max_anomaly_ratio: float = Field(default=0.10, ge=0, le=1)
+    min_input_activity_ratio: float = Field(default=0.05, ge=0)
+    min_information_gain_bits: float = Field(default=0.0, ge=0)
 
 
 class DynamicSegment(Schema):
@@ -77,6 +91,50 @@ class DynamicSegment(Schema):
     snr_db: float
     dynamic_score: float
     recommendation: Literal["strongly_recommended", "recommended", "review", "rejected"]
+    rank: int | None = Field(default=None, ge=1)
+    information_gain_bits: float | None = None
+    cumulative_log_det: float | None = None
+    n_rows: int | None = Field(default=None, ge=0)
+    missing_ratio: float | None = None
+    anomaly_ratio: float | None = None
+
+
+class GatedWindow(Schema):
+    """A candidate window the quality gate scored, accepted or not."""
+
+    window_index: int = Field(ge=0)
+    start_index: int = Field(ge=0)
+    end_index: int = Field(ge=0)
+    missing_ratio: float
+    anomaly_ratio: float
+    snr_db: float
+    input_activity: float
+    output_activity: float
+    accepted: bool
+    rejection_reasons: list[str] = Field(default_factory=list)
+
+
+class SelectionSummary(Schema):
+    """Information-theoretic outcome of the D-optimal stage."""
+
+    candidate_count: int = Field(ge=0)
+    gated_count: int = Field(ge=0)
+    selected_count: int = Field(ge=0)
+    selected_rows: int = Field(ge=0)
+    coverage_ratio: float
+    baseline_log_det: float
+    selected_log_det: float
+    information_retention: float | None = None
+    evaluated_candidates: int = Field(ge=0)
+    naive_candidate_evaluations: int = Field(ge=0)
+    lazy_speedup: float
+    stopped_reason: str
+    condition_number: float | None = None
+    excitation_satisfied: bool = False
+    persistent_excitation_order: dict[str, int] = Field(default_factory=dict)
+    required_excitation_order: dict[str, int] = Field(default_factory=dict)
+    rejection_counts: dict[str, int] = Field(default_factory=dict)
+    noise_sigma: float = 0.0
 
 
 class SegmentData(Schema):
@@ -85,6 +143,11 @@ class SegmentData(Schema):
     timestamps: list[datetime]
     series: dict[str, list[float | None]]
     segments: list[DynamicSegment]
+    dataset_id: UUID | None = None
+    derived_version_id: UUID | None = None
+    selection: SelectionSummary | None = None
+    gated_windows: list[GatedWindow] = Field(default_factory=list)
+    selected_indices: list[int] = Field(default_factory=list)
 
 
 class DelayRequest(Schema):

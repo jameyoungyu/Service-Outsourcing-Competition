@@ -827,6 +827,7 @@
           "Preprocessing"
         ],
         "summary": "Queue time alignment, interpolation and anomaly cleaning",
+        "description": "Run the real cleaning pipeline and register an immutable derived version.",
         "operationId": "clean_data_api_v1_preprocessing_clean_post",
         "requestBody": {
           "content": {
@@ -898,6 +899,7 @@
           "Preprocessing"
         ],
         "summary": "Queue dynamic-response segment identification",
+        "description": "Gate candidate windows on quality, then select by D-optimal information gain.",
         "operationId": "segment_data_api_v1_preprocessing_segment_post",
         "requestBody": {
           "content": {
@@ -2066,6 +2068,84 @@
             },
             "type": "array",
             "title": "Series"
+          },
+          "dataset_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dataset Id"
+          },
+          "new_version_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "New Version Id"
+          },
+          "raw_series": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Raw Series"
+          },
+          "cleaned_series": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Cleaned Series"
+          },
+          "replaced_indices": {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array",
+            "title": "Replaced Indices"
+          },
+          "total_cleaned_points": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Total Cleaned Points",
+            "default": 0
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Warnings"
+          },
+          "recommended_downsample_factor": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Recommended Downsample Factor",
+            "default": 1
           }
         },
         "additionalProperties": false,
@@ -2085,6 +2165,18 @@
             "format": "uuid",
             "title": "Version Id"
           },
+          "dataset_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dataset Id"
+          },
           "target_sample_period_seconds": {
             "anyOf": [
               {
@@ -2097,15 +2189,47 @@
             ],
             "title": "Target Sample Period Seconds"
           },
+          "resample_period_s": {
+            "anyOf": [
+              {
+                "type": "number",
+                "exclusiveMinimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Resample Period S"
+          },
           "interpolation": {
             "type": "string",
             "enum": [
               "linear",
               "forward_fill",
+              "backward_fill",
               "none"
             ],
             "title": "Interpolation",
             "default": "linear"
+          },
+          "interpolation_method": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "linear",
+                  "ffill",
+                  "bfill",
+                  "forward_fill",
+                  "backward_fill",
+                  "none"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Interpolation Method"
           },
           "anomaly_detector": {
             "type": "string",
@@ -2116,6 +2240,23 @@
             ],
             "title": "Anomaly Detector",
             "default": "hampel"
+          },
+          "outlier_method": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "iqr",
+                  "zscore",
+                  "z_score",
+                  "hampel"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Outlier Method"
           },
           "anomaly_strategy": {
             "type": "string",
@@ -2141,6 +2282,64 @@
             "exclusiveMinimum": 0.0,
             "title": "Hampel Threshold",
             "default": 3.0
+          },
+          "hampel_n_sigmas": {
+            "anyOf": [
+              {
+                "type": "number",
+                "exclusiveMinimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Hampel N Sigmas"
+          },
+          "z_score_threshold": {
+            "type": "number",
+            "exclusiveMinimum": 0.0,
+            "title": "Z Score Threshold",
+            "default": 3.0
+          },
+          "max_consecutive_missing": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 100000.0,
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Consecutive Missing",
+            "default": 10
+          },
+          "duplicate_strategy": {
+            "type": "string",
+            "enum": [
+              "first",
+              "mean"
+            ],
+            "title": "Duplicate Strategy",
+            "default": "mean"
+          },
+          "smoothing": {
+            "type": "string",
+            "enum": [
+              "none",
+              "moving_average",
+              "savitzky_golay"
+            ],
+            "title": "Smoothing",
+            "default": "none"
+          },
+          "smoothing_window": {
+            "type": "integer",
+            "maximum": 1001.0,
+            "minimum": 3.0,
+            "title": "Smoothing Window",
+            "default": 5
           }
         },
         "additionalProperties": false,
@@ -3625,6 +3824,74 @@
               "rejected"
             ],
             "title": "Recommendation"
+          },
+          "rank": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rank"
+          },
+          "information_gain_bits": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Information Gain Bits"
+          },
+          "cumulative_log_det": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cumulative Log Det"
+          },
+          "n_rows": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "N Rows"
+          },
+          "missing_ratio": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Missing Ratio"
+          },
+          "anomaly_ratio": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Anomaly Ratio"
           }
         },
         "additionalProperties": false,
@@ -3805,6 +4072,71 @@
           "tool"
         ],
         "title": "ExecutionPlanStep"
+      },
+      "GatedWindow": {
+        "properties": {
+          "window_index": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Window Index"
+          },
+          "start_index": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Start Index"
+          },
+          "end_index": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "End Index"
+          },
+          "missing_ratio": {
+            "type": "number",
+            "title": "Missing Ratio"
+          },
+          "anomaly_ratio": {
+            "type": "number",
+            "title": "Anomaly Ratio"
+          },
+          "snr_db": {
+            "type": "number",
+            "title": "Snr Db"
+          },
+          "input_activity": {
+            "type": "number",
+            "title": "Input Activity"
+          },
+          "output_activity": {
+            "type": "number",
+            "title": "Output Activity"
+          },
+          "accepted": {
+            "type": "boolean",
+            "title": "Accepted"
+          },
+          "rejection_reasons": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Rejection Reasons"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "window_index",
+          "start_index",
+          "end_index",
+          "missing_ratio",
+          "anomaly_ratio",
+          "snr_db",
+          "input_activity",
+          "output_activity",
+          "accepted"
+        ],
+        "title": "GatedWindow",
+        "description": "A candidate window the quality gate scored, accepted or not."
       },
       "GroundTruthSegment": {
         "properties": {
@@ -4247,6 +4579,54 @@
             },
             "type": "array",
             "title": "Segments"
+          },
+          "dataset_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dataset Id"
+          },
+          "derived_version_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Derived Version Id"
+          },
+          "selection": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SelectionSummary"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "gated_windows": {
+            "items": {
+              "$ref": "#/components/schemas/GatedWindow"
+            },
+            "type": "array",
+            "title": "Gated Windows"
+          },
+          "selected_indices": {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array",
+            "title": "Selected Indices"
           }
         },
         "additionalProperties": false,
@@ -4303,6 +4683,90 @@
             "minimum": 1.0,
             "title": "Max Segments",
             "default": 10
+          },
+          "dataset_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dataset Id"
+          },
+          "stride": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stride"
+          },
+          "na": {
+            "type": "integer",
+            "maximum": 20.0,
+            "minimum": 1.0,
+            "title": "Na",
+            "default": 2
+          },
+          "nb": {
+            "type": "integer",
+            "maximum": 20.0,
+            "minimum": 1.0,
+            "title": "Nb",
+            "default": 2
+          },
+          "nk": {
+            "type": "integer",
+            "maximum": 1000.0,
+            "minimum": 0.0,
+            "title": "Nk",
+            "default": 0
+          },
+          "train_ratio": {
+            "type": "number",
+            "exclusiveMaximum": 1.0,
+            "exclusiveMinimum": 0.0,
+            "title": "Train Ratio",
+            "default": 0.7
+          },
+          "ridge": {
+            "type": "number",
+            "exclusiveMinimum": 0.0,
+            "title": "Ridge",
+            "default": 1e-06
+          },
+          "max_missing_ratio": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Max Missing Ratio",
+            "default": 0.2
+          },
+          "max_anomaly_ratio": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Max Anomaly Ratio",
+            "default": 0.1
+          },
+          "min_input_activity_ratio": {
+            "type": "number",
+            "minimum": 0.0,
+            "title": "Min Input Activity Ratio",
+            "default": 0.05
+          },
+          "min_information_gain_bits": {
+            "type": "number",
+            "minimum": 0.0,
+            "title": "Min Information Gain Bits",
+            "default": 0.0
           }
         },
         "additionalProperties": false,
@@ -4313,6 +4777,130 @@
           "output_column"
         ],
         "title": "SegmentRequest"
+      },
+      "SelectionSummary": {
+        "properties": {
+          "candidate_count": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Candidate Count"
+          },
+          "gated_count": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Gated Count"
+          },
+          "selected_count": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Selected Count"
+          },
+          "selected_rows": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Selected Rows"
+          },
+          "coverage_ratio": {
+            "type": "number",
+            "title": "Coverage Ratio"
+          },
+          "baseline_log_det": {
+            "type": "number",
+            "title": "Baseline Log Det"
+          },
+          "selected_log_det": {
+            "type": "number",
+            "title": "Selected Log Det"
+          },
+          "information_retention": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Information Retention"
+          },
+          "evaluated_candidates": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Evaluated Candidates"
+          },
+          "naive_candidate_evaluations": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Naive Candidate Evaluations"
+          },
+          "lazy_speedup": {
+            "type": "number",
+            "title": "Lazy Speedup"
+          },
+          "stopped_reason": {
+            "type": "string",
+            "title": "Stopped Reason"
+          },
+          "condition_number": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Condition Number"
+          },
+          "excitation_satisfied": {
+            "type": "boolean",
+            "title": "Excitation Satisfied",
+            "default": false
+          },
+          "persistent_excitation_order": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "Persistent Excitation Order"
+          },
+          "required_excitation_order": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "Required Excitation Order"
+          },
+          "rejection_counts": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "Rejection Counts"
+          },
+          "noise_sigma": {
+            "type": "number",
+            "title": "Noise Sigma",
+            "default": 0.0
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "candidate_count",
+          "gated_count",
+          "selected_count",
+          "selected_rows",
+          "coverage_ratio",
+          "baseline_log_det",
+          "selected_log_det",
+          "evaluated_candidates",
+          "naive_candidate_evaluations",
+          "lazy_speedup",
+          "stopped_reason"
+        ],
+        "title": "SelectionSummary",
+        "description": "Information-theoretic outcome of the D-optimal stage."
       },
       "SimulationGenerateData": {
         "properties": {

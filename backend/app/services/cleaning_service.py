@@ -10,9 +10,6 @@ from math import ceil
 from pathlib import Path
 from uuid import UUID, uuid4
 
-from sqlalchemy import func, select
-from sqlalchemy.ext.asyncio import AsyncSession
-
 from algorithms.cleaning.pipeline import (
     CleaningContext,
     CleaningParameters,
@@ -20,6 +17,9 @@ from algorithms.cleaning.pipeline import (
     CleaningResult,
 )
 from algorithms.cleaning.quality import build_quality_profile
+from sqlalchemy import func, select
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from app.models.dataset import (
     Dataset,
     DatasetColumn,
@@ -44,7 +44,12 @@ class CleaningDomainError(Exception):
     """A client-safe preprocessing error for the standard API error envelope."""
 
     def __init__(
-        self, code: str, message: str, *, status_code: int = 400, details: dict[str, object] | None = None
+        self,
+        code: str,
+        message: str,
+        *,
+        status_code: int = 400,
+        details: dict[str, object] | None = None,
     ) -> None:
         super().__init__(message)
         self.code = code
@@ -68,7 +73,9 @@ async def clean_dataset_version(
         )
     dataset = await session.get(Dataset, source_version.dataset_id)
     if dataset is None:
-        raise CleaningDomainError("DATASET_NOT_FOUND", "数据版本所属数据集不存在。", status_code=404)
+        raise CleaningDomainError(
+            "DATASET_NOT_FOUND", "数据版本所属数据集不存在。", status_code=404
+        )
     if payload.dataset_id is not None and payload.dataset_id != dataset.id:
         raise CleaningDomainError(
             "DATASET_VERSION_MISMATCH",
@@ -79,9 +86,13 @@ async def clean_dataset_version(
     if not source_columns:
         raise CleaningDomainError("INVALID_DATASET_SCHEMA", "数据版本缺少列元数据。")
     try:
-        parsed = load_version_csv(dataset=dataset, version=source_version, artifact_root=artifact_root)
+        parsed = load_version_csv(
+            dataset=dataset, version=source_version, artifact_root=artifact_root
+        )
     except DatasetVersionArtifactError as error:
-        raise CleaningDomainError(error.code, error.message, status_code=404, details=error.details) from error
+        raise CleaningDomainError(
+            error.code, error.message, status_code=404, details=error.details
+        ) from error
 
     parameters = _resolve_parameters(payload)
     context = CleaningContext(
@@ -227,7 +238,9 @@ async def _version_columns(session: AsyncSession, version_id: UUID) -> list[Data
 
 async def _next_version_index(session: AsyncSession, dataset_id: UUID) -> int:
     current = await session.scalar(
-        select(func.max(DatasetVersion.version_index)).where(DatasetVersion.dataset_id == dataset_id)
+        select(func.max(DatasetVersion.version_index)).where(
+            DatasetVersion.dataset_id == dataset_id
+        )
     )
     return int(current or 0) + 1
 

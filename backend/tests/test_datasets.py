@@ -30,7 +30,9 @@ def dataset_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[
 
     monkeypatch.setattr(
         "app.api.routes.get_settings",
-        lambda: Settings(artifact_root=tmp_path, database_url=f"sqlite+aiosqlite:///{tmp_path / 'datasets.db'}"),
+        lambda: Settings(
+            artifact_root=tmp_path, database_url=f"sqlite+aiosqlite:///{tmp_path / 'datasets.db'}"
+        ),
     )
     app = create_app()
     app.dependency_overrides[get_session] = session_override

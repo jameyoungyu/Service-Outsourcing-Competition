@@ -48,6 +48,7 @@ from app.schemas.preprocessing import (
 from app.schemas.simulation import SimulationGenerateData, SimulationGenerateRequest
 from app.schemas.system import LivenessData, ReadinessData, SystemInfoData
 from app.schemas.tasks import CancelTaskData
+from app.services.cleaning_service import CleaningDomainError, clean_dataset_version
 from app.services.contract_stubs import completed_task, new_id, queued_task
 from app.services.dataset_service import (
     DatasetDomainError,
@@ -65,6 +66,7 @@ from app.services.dataset_service import (
 )
 from app.services.identification_service import ArxDomainError
 from app.services.identification_service import fit_arx as fit_arx_service
+from app.services.segment_service import SegmentDomainError, select_dynamic_segments
 from app.services.simulation_service import generate_simulation as generate_simulation_service
 
 router = APIRouter()
@@ -345,16 +347,27 @@ async def get_dataset_versions(
     response_model=SuccessEnvelope[CleanData],
     responses=ERROR_RESPONSES,
 )
-async def clean_data(request: Request, payload: CleanRequest) -> SuccessEnvelope[CleanData]:
-    return success(
-        request,
-        CleanData(
-            source_version_id=payload.version_id,
-            derived_version_id=new_id(),
-            task=queued_task(stage="clean_data"),
-            series=[],
-        ),
-    )
+async def clean_data(
+    request: Request,
+    payload: CleanRequest,
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> SuccessEnvelope[CleanData]:
+    """Run the real cleaning pipeline and register an immutable derived version."""
+
+    try:
+        data = await clean_dataset_version(
+            session,
+            payload=payload,
+            artifact_root=get_settings().artifact_root,
+        )
+    except CleaningDomainError as error:
+        raise AppError(
+            error.code,
+            error.message,
+            status_code=error.status_code,
+            details=error.details,
+        ) from error
+    return success(request, data)
 
 
 @router.post(
@@ -365,17 +378,27 @@ async def clean_data(request: Request, payload: CleanRequest) -> SuccessEnvelope
     response_model=SuccessEnvelope[SegmentData],
     responses=ERROR_RESPONSES,
 )
-async def segment_data(request: Request, payload: SegmentRequest) -> SuccessEnvelope[SegmentData]:
-    return success(
-        request,
-        SegmentData(
-            source_version_id=payload.version_id,
-            task=queued_task(stage="detect_dynamic_segments"),
-            timestamps=[],
-            series={},
-            segments=[],
-        ),
-    )
+async def segment_data(
+    request: Request,
+    payload: SegmentRequest,
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> SuccessEnvelope[SegmentData]:
+    """Gate candidate windows on quality, then select by D-optimal information gain."""
+
+    try:
+        data = await select_dynamic_segments(
+            session,
+            payload=payload,
+            artifact_root=get_settings().artifact_root,
+        )
+    except SegmentDomainError as error:
+        raise AppError(
+            error.code,
+            error.message,
+            status_code=error.status_code,
+            details=error.details,
+        ) from error
+    return success(request, data)
 
 
 @router.post(

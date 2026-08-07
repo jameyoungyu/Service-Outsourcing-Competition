@@ -357,7 +357,9 @@ def _recommendations(
 ) -> list[str]:
     recommendations: list[str] = []
     if overall_missing_rate > 0:
-        recommendations.append(f"检测到 {overall_missing_rate:.1%} 缺失，建议在清洗阶段选择插值策略。")
+        recommendations.append(
+            f"检测到 {overall_missing_rate:.1%} 缺失，建议在清洗阶段选择插值策略。"
+        )
     if sample_period is not None and irregular_rate > 0.01:
         recommendations.append(f"建议按 {sample_period:g}s 固定周期重采样后再进行系统辨识。")
     if duplicate_count:

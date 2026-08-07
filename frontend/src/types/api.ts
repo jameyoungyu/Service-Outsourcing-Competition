@@ -25,6 +25,15 @@ export interface SuccessEnvelope<T> {
 
 export type ApiResponse<T> = SuccessEnvelope<T> | ErrorEnvelope;
 
+/** Progress descriptor every long-running or completed stage returns. */
+export interface TaskResource {
+  task_id: string;
+  status: string;
+  stage: string;
+  progress: number;
+  message?: string | null;
+}
+
 // System API Types
 export interface LivenessData {
   status: string;
@@ -233,24 +242,86 @@ export interface SegmentItem {
   segment_id: string;
   start_index: number;
   end_index: number;
+  start_time?: string | null;
+  end_time?: string | null;
   snr_db: number;
   dynamic_score: number;
   recommendation: string;
+  /** Rank in the greedy selection order; 1 is the most informative segment. */
+  rank?: number | null;
+  /** Marginal Fisher-information gain contributed by this segment, in bits. */
+  information_gain_bits?: number | null;
+  cumulative_log_det?: number | null;
+  n_rows?: number | null;
+  missing_ratio?: number | null;
+  anomaly_ratio?: number | null;
+}
+
+/** One candidate window the quality gate scored, whether or not it survived. */
+export interface GatedWindow {
+  window_index: number;
+  start_index: number;
+  end_index: number;
+  missing_ratio: number;
+  anomaly_ratio: number;
+  snr_db: number;
+  input_activity: number;
+  output_activity: number;
+  accepted: boolean;
+  rejection_reasons: string[];
+}
+
+/** Information-theoretic outcome of the D-optimal stage. */
+export interface SelectionSummary {
+  candidate_count: number;
+  gated_count: number;
+  selected_count: number;
+  selected_rows: number;
+  coverage_ratio: number;
+  baseline_log_det: number;
+  selected_log_det: number;
+  information_retention: number | null;
+  evaluated_candidates: number;
+  naive_candidate_evaluations: number;
+  lazy_speedup: number;
+  stopped_reason: string;
+  condition_number: number | null;
+  excitation_satisfied: boolean;
+  persistent_excitation_order: Record<string, number>;
+  required_excitation_order: Record<string, number>;
+  rejection_counts: Record<string, number>;
+  noise_sigma: number;
 }
 
 export interface SegmentRequest {
-  dataset_id: string;
   version_id: string;
-  min_length?: number;
+  input_columns: string[];
+  output_column: string;
+  dataset_id?: string | null;
+  window_size?: number;
+  stride?: number;
+  max_segments?: number;
   min_snr_db?: number;
-  top_k?: number;
+  na?: number;
+  nb?: number;
+  nk?: number;
+  train_ratio?: number;
+  max_missing_ratio?: number;
+  max_anomaly_ratio?: number;
+  min_input_activity_ratio?: number;
+  min_information_gain_bits?: number;
 }
 
 export interface SegmentResponse {
-  dataset_id: string;
-  version_id: string;
+  source_version_id: string;
+  dataset_id: string | null;
+  task: TaskResource;
+  timestamps: string[];
+  series: Record<string, (number | null)[]>;
   segments: SegmentItem[];
-  selected_segment_ids: string[];
+  selection: SelectionSummary | null;
+  gated_windows: GatedWindow[];
+  selected_indices: number[];
 }
 
 export interface DelayRequest {

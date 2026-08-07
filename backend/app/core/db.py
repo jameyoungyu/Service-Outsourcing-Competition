@@ -1,6 +1,5 @@
 from collections.abc import AsyncIterator
 from functools import lru_cache
-from typing import cast
 
 from redis.asyncio import Redis, from_url
 from sqlalchemy import text
@@ -41,13 +40,10 @@ async def database_is_ready() -> bool:
 
 @lru_cache
 def get_redis() -> Redis:
-    return cast(
-        Redis,
-        from_url(  # type: ignore[no-untyped-call]
-            get_settings().redis_url,
-            encoding="utf-8",
-            decode_responses=True,
-        ),
+    return from_url(
+        get_settings().redis_url,
+        encoding="utf-8",
+        decode_responses=True,
     )
 
 

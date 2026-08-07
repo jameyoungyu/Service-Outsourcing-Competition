@@ -49,10 +49,44 @@ class WindowGrid:
     positions: tuple[IntArray, ...]
     window_size: int
     stride: int
+    source_indices: tuple[int, ...] = ()
+
+    def __post_init__(self) -> None:
+        if not self.source_indices:
+            object.__setattr__(self, "source_indices", tuple(range(len(self.positions))))
+        elif len(self.source_indices) != len(self.positions):
+            raise IdentifiabilityError(
+                "PARAMETER_OUT_OF_RANGE",
+                "source_indices 必须与候选窗口数量一致",
+                {"positions": len(self.positions), "source_indices": len(self.source_indices)},
+            )
 
     @property
     def count(self) -> int:
         return len(self.positions)
+
+    def subset(self, indices: Sequence[int]) -> WindowGrid:
+        """Keep only the listed windows, preserving their identity in the original grid.
+
+        Used to hand the gate's survivors to the selector without renumbering them, so a
+        report can still say "window 37 was chosen" and mean the same window the gate
+        scored.
+        """
+
+        chosen = list(indices)
+        invalid = [index for index in chosen if not 0 <= index < len(self.positions)]
+        if invalid:
+            raise IdentifiabilityError(
+                "PARAMETER_OUT_OF_RANGE",
+                "窗口下标越界",
+                {"invalid_indices": invalid, "count": len(self.positions)},
+            )
+        return WindowGrid(
+            positions=tuple(self.positions[index] for index in chosen),
+            window_size=self.window_size,
+            stride=self.stride,
+            source_indices=tuple(self.source_indices[index] for index in chosen),
+        )
 
 
 @dataclass(frozen=True)
@@ -280,7 +314,7 @@ def select_informative_windows(
         selected.append(
             SelectedWindow(
                 rank=len(selected) + 1,
-                window_index=best_index,
+                window_index=grid.source_indices[best_index],
                 start_index=int(regressor.time_indices[positions[0]]),
                 end_index=int(regressor.time_indices[positions[-1]]),
                 n_rows=int(positions.size),
