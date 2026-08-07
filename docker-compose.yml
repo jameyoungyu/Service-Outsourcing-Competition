@@ -1,0 +1,61 @@
+services:
+  backend:
+    build:
+      context: ./backend
+    environment:
+      INDUSOPT_DATABASE_URL: postgresql+asyncpg://indusopt:indusopt@postgres:5432/indusopt
+      INDUSOPT_REDIS_URL: redis://redis:6379/0
+      INDUSOPT_APP_ENV: development
+    ports:
+      - "${INDUSOPT_BACKEND_PORT:-18000}:8000"
+    volumes:
+      - ./backend/data:/app/data
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  worker:
+    build:
+      context: ./backend
+    command: rq worker --url redis://redis:6379/0
+    environment:
+      INDUSOPT_DATABASE_URL: postgresql+asyncpg://indusopt:indusopt@postgres:5432/indusopt
+      INDUSOPT_REDIS_URL: redis://redis:6379/0
+      INDUSOPT_APP_ENV: development
+    volumes:
+      - ./backend/data:/app/data
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: indusopt
+      POSTGRES_USER: indusopt
+      POSTGRES_PASSWORD: indusopt
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U indusopt -d indusopt"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  postgres_data:
+  redis_data:

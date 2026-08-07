@@ -1,0 +1,12 @@
+CHANGELOG.md	815 bytes
+PHASE_STATUS.md	2181 bytes
+README.md	1590 bytes
+docs/algorithms/algorithm-specification.md	9405 bytes
+docs/api/openapi-plan.md	5196 bytes
+docs/architecture/data-flow.md	4614 bytes
+docs/architecture/system-architecture.md	8783 bytes
+docs/handoff/PHASE_0_GPT_TO_GEMINI.md	8080 bytes
+docs/requirements/official-requirements.md	6243 bytes
+docs/requirements/scope-freeze.md	8305 bytes
+docs/requirements/use-cases.md	7198 bytes
+docs/testing/evaluation-protocol.md	5769 bytes

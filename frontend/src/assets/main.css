@@ -1,0 +1,114 @@
+/* IndusOpt Industrial Design Tokens & Base CSS */
+
+:root {
+  /* Industrial Color Palette */
+  --color-primary: #1E6091;
+  --color-primary-hover: #184E77;
+  --color-primary-light: #E8F1F5;
+
+  --color-success: #2A9D8F;
+  --color-success-bg: #E8F6F4;
+
+  --color-warning: #E9C46A;
+  --color-warning-dark: #D4A373;
+  --color-warning-bg: #FFF9E6;
+
+  --color-danger: #E76F51;
+  --color-danger-bg: #FDF0ED;
+
+  --bg-app: #F4F6F8;
+  --bg-surface: #FFFFFF;
+  --bg-sidebar: #1A212D;
+  --bg-header: #FFFFFF;
+  --bg-subtle: #F8F9FA;
+
+  --text-primary: #1A1D20;
+  --text-secondary: #5A626A;
+  --text-muted: #8D96A0;
+  --border-light: #E2E7EC;
+  --border-active: #1E6091;
+
+  --font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-mono: "JetBrains Mono", "Fira Code", Consolas, Monaco, monospace;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: var(--font-family);
+  background-color: var(--bg-app);
+  color: var(--text-primary);
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Common Layout Helpers */
+.industrial-card {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-light);
+  border-radius: 6px;
+  padding: 20px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+  margin-bottom: 20px;
+}
+
+.industrial-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border-light);
+}
+
+.industrial-card-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-primary);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.industrial-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 500;
+  font-family: var(--font-mono);
+}
+
+.badge-primary {
+  background: var(--color-primary-light);
+  color: var(--color-primary);
+}
+
+.badge-success {
+  background: var(--color-success-bg);
+  color: var(--color-success);
+}
+
+.badge-warning {
+  background: var(--color-warning-bg);
+  color: var(--color-warning-dark);
+}
+
+.badge-danger {
+  background: var(--color-danger-bg);
+  color: var(--color-danger);
+}
+
+.code-inline {
+  font-family: var(--font-mono);
+  background: var(--bg-subtle);
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 13px;
+  border: 1px solid var(--border-light);
+}

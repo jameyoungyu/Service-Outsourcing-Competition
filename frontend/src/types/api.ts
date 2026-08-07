@@ -1,0 +1,371 @@
+/**
+ * IndusOpt API TypeScript Types
+ * Generated & Synchronized with backend/openapi.json (OpenAPI 3.1.0, Phase 3)
+ */
+
+export interface ErrorDetail {
+  code: string;
+  message: string;
+  details?: Record<string, any> | null;
+}
+
+export interface ErrorEnvelope {
+  success: false;
+  data: null;
+  error: ErrorDetail;
+  request_id: string;
+}
+
+export interface SuccessEnvelope<T> {
+  success: true;
+  data: T;
+  error: null;
+  request_id: string;
+}
+
+export type ApiResponse<T> = SuccessEnvelope<T> | ErrorEnvelope;
+
+// System API Types
+export interface LivenessData {
+  status: string;
+  uptime_seconds: number;
+}
+
+export interface ComponentHealth {
+  status: string;
+  latency_ms?: number | null;
+  error?: string | null;
+}
+
+export interface ReadinessData {
+  status: string;
+  components: {
+    postgres: ComponentHealth;
+    redis: ComponentHealth;
+  };
+}
+
+export interface SystemInfoData {
+  name: string;
+  version: string;
+  api_version: string;
+  environment: string;
+  docs_url: string;
+  openapi_url: string;
+}
+
+// Simulation API Types
+export interface SimulationGenerateRequest {
+  scenario: "S1" | "S2" | "S3" | "S4" | "S5";
+  dataset_name: string;
+  num_samples?: number;
+  noise_level?: number;
+  seed?: number;
+}
+
+export interface DynamicSegmentGroundTruth {
+  start_idx: number;
+  end_idx: number;
+  segment_type: string;
+}
+
+export interface SimulationGroundTruth {
+  system_type: string;
+  true_na: number;
+  true_nb: number[];
+  true_delays: number[];
+  true_parameters: Record<string, number>;
+  dynamic_segments: DynamicSegmentGroundTruth[];
+  noise_level: number;
+  seed: number;
+}
+
+export interface SimulationGenerateResponse {
+  dataset_id: string;
+  dataset_name: string;
+  version_id: string;
+  scenario: string;
+  file_path: string;
+  num_rows: number;
+  num_cols: number;
+  columns: string[];
+  ground_truth: SimulationGroundTruth;
+}
+
+// Dataset API Types (Phase 3 Real Models)
+export interface DatasetColumnInfo {
+  name: string;
+  data_type?: string;
+  role: "time" | "input" | "output" | "ignored" | "timestamp" | "ignore";
+  missing_count?: number;
+  unit?: string | null;
+}
+
+export interface DatasetItem {
+  id: string;
+  name: string;
+  version_id: string;
+  latest_version_id?: string;
+  source?: string;
+  status?: string;
+  file_size_bytes: number;
+  row_count: number;
+  col_count: number;
+  column_count?: number;
+  created_at: string;
+  updated_at?: string;
+  time_column: string;
+  input_columns: string[];
+  output_column: string | null;
+  columns?: DatasetColumnInfo[];
+  preview?: Record<string, any>[];
+}
+
+export interface DatasetListResponse {
+  items: DatasetItem[];
+  page?: {
+    current_page: number;
+    page_size: number;
+    total_items: number;
+    total_pages: number;
+  };
+}
+
+export interface DatasetUploadResponse {
+  dataset: DatasetItem;
+  parse_task: {
+    task_id: string;
+    status: string;
+    progress: number;
+  };
+  deduplicated: boolean;
+}
+
+export interface ColumnStatInfo {
+  count: number;
+  mean: number | null;
+  std: number | null;
+  min: number | null;
+  max: number | null;
+  q25: number | null;
+  q50: number | null;
+  q75: number | null;
+}
+
+export interface DatasetProfile {
+  dataset_id: string;
+  version_id: string;
+  total_rows: number;
+  total_cols: number;
+  missing_rate: number;
+  missing_rates: Record<string, number>;
+  max_consecutive_missing?: number;
+  anomaly_counts: Record<string, number>;
+  interval_histogram: Array<{ bin: number; count: number }>;
+  duplicate_timestamp_count?: number;
+  irregular_sampling_rate?: number;
+  frozen_segments?: number;
+  constant_columns?: string[];
+  time_range_start?: string | null;
+  time_range_end?: string | null;
+  sample_period_seconds?: number | null;
+  column_statistics?: Record<string, ColumnStatInfo>;
+  quality_score: number;
+  recommendations: string[];
+  quality_issues?: string[];
+}
+
+export interface DatasetVersionNode {
+  version_id: string;
+  parent_version_id?: string | null;
+  operation_name: string;
+  parameters?: Record<string, any>;
+  created_at: string;
+}
+
+export interface DatasetVersionsResponse {
+  dataset_id: string;
+  active_version_id: string;
+  nodes: DatasetVersionNode[];
+  edges?: Array<{ source: string; target: string }>;
+}
+
+export interface DatasetDeleteResponse {
+  dataset_id: string;
+  status: string;
+}
+
+export interface DatasetColumnConfig {
+  name: string;
+  role: "time" | "input" | "output" | "ignored" | "timestamp" | "ignore";
+  unit?: string | null;
+}
+
+export interface DatasetConfigRequest {
+  columns?: DatasetColumnConfig[];
+  time_column?: string;
+  input_columns?: string[];
+  output_column?: string | null;
+  ignored_columns?: string[];
+}
+
+// Preprocessing API Types
+export interface CleanRequest {
+  dataset_id: string;
+  version_id: string;
+  resample_period_s?: number;
+  interpolation_method?: "linear" | "ffill" | "bfill";
+  outlier_method?: "hampel" | "iqr" | "zscore";
+  hampel_window?: number;
+  hampel_n_sigmas?: number;
+}
+
+export interface CleanResponse {
+  dataset_id: string;
+  new_version_id: string;
+  raw_series: number[];
+  cleaned_series: number[];
+  replaced_indices: number[];
+  total_cleaned_points: number;
+}
+
+export interface SegmentItem {
+  segment_id: string;
+  start_index: number;
+  end_index: number;
+  snr_db: number;
+  dynamic_score: number;
+  recommendation: string;
+}
+
+export interface SegmentRequest {
+  dataset_id: string;
+  version_id: string;
+  min_length?: number;
+  min_snr_db?: number;
+  top_k?: number;
+}
+
+export interface SegmentResponse {
+  dataset_id: string;
+  version_id: string;
+  segments: SegmentItem[];
+  selected_segment_ids: string[];
+}
+
+export interface DelayRequest {
+  dataset_id: string;
+  version_id: string;
+  max_delay_steps?: number;
+}
+
+export interface DelayResponse {
+  dataset_id: string;
+  version_id: string;
+  delays: number[];
+  correlations: Record<string, number[]>;
+  recommended_delays: Record<string, number>;
+}
+
+export interface CollinearityRequest {
+  dataset_id: string;
+  version_id: string;
+  vif_threshold?: number;
+}
+
+export interface CollinearityResponse {
+  dataset_id: string;
+  version_id: string;
+  variables: string[];
+  correlation_matrix: number[][];
+  vif_scores: Record<string, number>;
+  recommended_drops: string[];
+}
+
+// Modeling & Optimization API Types
+export interface ARXFitRequest {
+  dataset_id: string;
+  version_id: string;
+  na: number;
+  nb: number[];
+  delays: number[];
+  estimation_method?: "ols" | "ridge";
+  ridge_alpha?: number;
+}
+
+export interface ARXFitResponse {
+  model_id: string;
+  a_coefficients: number[];
+  b_coefficients: Record<string, number[]>;
+  metrics: {
+    train_r2: number;
+    train_fit: number;
+    val_r2: number;
+    val_fit: number;
+    test_r2: number;
+    test_fit: number;
+    rmse: number;
+  };
+  plot_data: {
+    indices: number[];
+    y_true: number[];
+    y_pred: number[];
+    residuals: number[];
+    split_indices: { train: number; val: number; test: number };
+  };
+}
+
+export interface OptunaStartRequest {
+  dataset_id: string;
+  n_trials?: number;
+  target_metric?: "fit" | "r2" | "rmse";
+  search_space?: Record<string, any>;
+}
+
+export interface OptunaTrialItem {
+  trial_id: number;
+  value: number;
+  params: Record<string, any>;
+  state: "COMPLETE" | "PRUNED" | "FAIL";
+}
+
+export interface OptunaStatusResponse {
+  study_id: string;
+  status: "RUNNING" | "COMPLETED" | "CANCELLED" | "FAILED";
+  current_trial: number;
+  total_trials: number;
+  best_value: number;
+  best_params: Record<string, any>;
+  trials: OptunaTrialItem[];
+  convergence_curve: number[];
+  param_importances: Record<string, number>;
+}
+
+// Copilot API Types
+export interface CopilotStepNode {
+  step_id: string;
+  title: string;
+  tool_name: string;
+  status: "pending" | "running" | "waiting_confirmation" | "completed" | "failed";
+  requires_hitl: boolean;
+  impact_summary?: string | null;
+}
+
+export interface CopilotChatRequest {
+  prompt: string;
+  dataset_id?: string | null;
+}
+
+export interface CopilotChatResponse {
+  session_id: string;
+  reply_text: string;
+  plan_nodes: CopilotStepNode[];
+  active_step_id?: string | null;
+}
+
+export interface CopilotConfirmRequest {
+  session_id: string;
+  step_id: string;
+  approved: boolean;
+  custom_parameters?: Record<string, any>;
+}
