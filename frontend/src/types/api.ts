@@ -324,33 +324,65 @@ export interface SegmentResponse {
   selected_indices: number[];
 }
 
+export interface DelayPeak {
+  lag: number;
+  correlation: number;
+  confidence: number;
+}
+
 export interface DelayRequest {
-  dataset_id: string;
   version_id: string;
-  max_delay_steps?: number;
+  input_columns: string[];
+  output_column: string;
+  dataset_id?: string | null;
+  max_lag?: number;
+  top_k?: number;
 }
 
 export interface DelayResponse {
-  dataset_id: string;
-  version_id: string;
+  source_version_id: string;
+  dataset_id: string | null;
+  task: TaskResource;
   delays: number[];
+  /** Prewhitened cross-correlation curve per input, indexed by lag. */
   correlations: Record<string, number[]>;
-  recommended_delays: Record<string, number>;
+  best_delays: Record<string, number>;
+  candidate_peaks: Record<string, DelayPeak[]>;
+  /** Validation free-run FIT achieved by the refined delay set. */
+  validation_fit: number | null;
+  refinement_rounds: number;
+  /** Inputs whose top two candidates were too close to separate confidently. */
+  uncertain_columns: string[];
+  prewhitening_orders: Record<string, number>;
+}
+
+export interface VariableRecommendation {
+  variable: string;
+  action: "keep" | "drop" | "merge" | "review";
+  reason: string;
+  related_variables: string[];
 }
 
 export interface CollinearityRequest {
-  dataset_id: string;
   version_id: string;
+  input_columns: string[];
+  dataset_id?: string | null;
+  output_column?: string | null;
+  correlation_threshold?: number;
   vif_threshold?: number;
 }
 
 export interface CollinearityResponse {
-  dataset_id: string;
-  version_id: string;
+  source_version_id: string;
+  dataset_id: string | null;
+  task: TaskResource;
   variables: string[];
-  correlation_matrix: number[][];
+  matrix: number[][];
+  spearman_matrix: number[][];
   vif_scores: Record<string, number>;
-  recommended_drops: string[];
+  condition_number: number | null;
+  correlated_groups: string[][];
+  recommendations: VariableRecommendation[];
 }
 
 // Modeling & Optimization API Types

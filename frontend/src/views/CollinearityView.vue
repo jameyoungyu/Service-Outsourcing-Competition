@@ -1,191 +1,294 @@
 <template>
   <div class="collinearity-view">
     <div class="page-header">
-      <h2>共线性与变量筛选 (Collinearity Diagnosis)</h2>
-      <p class="subtitle">诊断过程变量间的强相关与冗余共线性，防止系统辨识回归矩阵奇异发散</p>
+      <h2>共线性检测与冗余变量处理</h2>
+      <p class="subtitle">
+        Pearson / Spearman 相关、方差膨胀因子 VIF 与设计矩阵条件数；剔除建议需人工确认后生效
+      </p>
     </div>
 
     <div class="collinearity-layout">
-      <!-- Config -->
       <div class="industrial-card">
         <div class="industrial-card-header">
           <div class="industrial-card-title">
-            <el-icon><Connection /></el-icon> VIF 阈值与共线性诊断配置
+            <el-icon><Share /></el-icon> 诊断参数
           </div>
         </div>
 
-        <el-form :inline="true" :model="form">
-          <el-form-item label="VIF 方差膨胀因子警戒线">
-            <el-input-number v-model="form.vif_threshold" :min="5" :max="20" :step="1" />
+        <el-form :inline="true" :model="form" label-width="110px">
+          <el-form-item label="数据版本 ID">
+            <el-input v-model="form.version_id" placeholder="version_id" style="width: 320px" />
+          </el-form-item>
+          <el-form-item label="输入变量">
+            <el-input v-model="inputColumnsText" placeholder="u1,u2,u3" style="width: 220px" />
+          </el-form-item>
+          <el-form-item label="相关阈值">
+            <el-input-number
+              v-model="form.correlation_threshold"
+              :min="0.5"
+              :max="1"
+              :step="0.01"
+              :precision="2"
+            />
+          </el-form-item>
+          <el-form-item label="VIF 阈值">
+            <el-input-number v-model="form.vif_threshold" :min="1.5" :max="100" :step="0.5" />
           </el-form-item>
           <el-form-item>
-            <el-button type="primary" :loading="loading" icon="Search" @click="handleDiagnose">
-              诊断共线性与 VIF 矩阵
+            <el-button type="primary" :loading="loading" icon="Search" @click="handleAnalyze">
+              执行共线性诊断
             </el-button>
           </el-form-item>
         </el-form>
-      </div>
 
-      <!-- Heatmap & VIF Bar Grid -->
-      <div class="collinearity-grid" v-if="result">
-        <!-- Heatmap -->
-        <div class="industrial-card">
-          <div class="industrial-card-header">
-            <div class="industrial-card-title">
-              <el-icon><Grid /></el-icon> Pearson 相关系数矩阵 (Correlation Heatmap)
-            </div>
-          </div>
-          <ChartContainer :options="heatmapOptions" height="340px" />
-        </div>
-
-        <!-- VIF Bar Chart -->
-        <div class="industrial-card">
-          <div class="industrial-card-header">
-            <div class="industrial-card-title">
-              <el-icon><DataBoard /></el-icon> VIF 方差膨胀因子诊断
-            </div>
-          </div>
-          <ChartContainer :options="vifChartOptions" height="340px" />
-        </div>
-      </div>
-
-      <!-- Recommendation Card -->
-      <div class="industrial-card" v-if="result">
-        <div class="industrial-card-header">
-          <div class="industrial-card-title">
-            <el-icon><Warning /></el-icon> 变量剔除与合并智能建议
-          </div>
-        </div>
-
-        <el-alert
-          title="检测到极高共线性 (u1 与 u2 相关系数 r = 0.96, VIF > 10)"
-          type="warning"
-          show-icon
-          :closable="false"
-        >
-          <template #default>
-            <p>算法建议：剔除冗余变量 <span class="code-inline">u2</span>，保留 <span class="code-inline">u1</span> 以确保 ARX 辨识矩阵稳健好条件。</p>
-          </template>
+        <el-alert v-if="errorMessage" type="error" :closable="false" show-icon class="alert-gap">
+          <template #title>诊断失败：{{ errorMessage }}</template>
         </el-alert>
-
-        <div style="margin-top: 20px; display: flex; justify-content: space-between; align-items: center">
-          <el-button type="danger" icon="Delete" @click="handleDropVariable">
-            接受建议并剔除 u2，生成版本 V4_Selected
-          </el-button>
-          <el-button type="success" icon="ArrowRight" @click="$router.push('/modeling/arx')">
-            下一步: ARX 系统辨识 ->
-          </el-button>
-        </div>
       </div>
+
+      <template v-if="result">
+        <div class="industrial-card">
+          <div class="industrial-card-header">
+            <div class="industrial-card-title">
+              <el-icon><TrendCharts /></el-icon> 矩阵稳定性
+            </div>
+            <el-tag :type="conditionSeverity">
+              条件数 {{ formatNumber(result.condition_number) }}
+            </el-tag>
+          </div>
+
+          <el-descriptions :column="3" border size="small">
+            <el-descriptions-item label="变量数">
+              {{ result.variables.length }}
+            </el-descriptions-item>
+            <el-descriptions-item label="高相关变量组">
+              {{ result.correlated_groups.length }}
+            </el-descriptions-item>
+            <el-descriptions-item label="建议剔除">
+              {{ dropCount }}
+            </el-descriptions-item>
+          </el-descriptions>
+
+          <div v-if="result.correlated_groups.length" class="group-block">
+            <span class="group-title">高相关变量组：</span>
+            <el-tag
+              v-for="(group, index) in result.correlated_groups"
+              :key="index"
+              type="warning"
+              effect="plain"
+              class="group-tag"
+            >
+              {{ group.join(" ↔ ") }}
+            </el-tag>
+          </div>
+        </div>
+
+        <div class="industrial-card">
+          <div class="industrial-card-header">
+            <div class="industrial-card-title">
+              <el-icon><Grid /></el-icon> Pearson 相关性热力图
+            </div>
+          </div>
+          <ChartContainer :options="heatmapOptions" height="380px" />
+        </div>
+
+        <div class="industrial-card">
+          <div class="industrial-card-header">
+            <div class="industrial-card-title">
+              <el-icon><Histogram /></el-icon> 方差膨胀因子 (VIF)
+            </div>
+          </div>
+          <ChartContainer :options="vifOptions" height="300px" />
+        </div>
+
+        <div class="industrial-card">
+          <div class="industrial-card-header">
+            <div class="industrial-card-title">
+              <el-icon><List /></el-icon> 变量处理建议（需人工确认）
+            </div>
+          </div>
+          <el-table :data="result.recommendations" stripe style="width: 100%">
+            <el-table-column prop="variable" label="变量" width="140" />
+            <el-table-column label="建议动作" width="120">
+              <template #default="{ row }">
+                <el-tag :type="actionType(row.action)" size="small">
+                  {{ actionLabel(row.action) }}
+                </el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column label="VIF" width="120">
+              <template #default="{ row }">
+                {{ formatNumber(result?.vif_scores[row.variable]) }}
+              </template>
+            </el-table-column>
+            <el-table-column prop="reason" label="理由" />
+          </el-table>
+
+          <div class="footer-actions">
+            <el-button
+              type="success"
+              icon="ArrowRight"
+              @click="$router.push('/modeling/arx')"
+            >
+              下一步: 系统辨识 →
+            </el-button>
+          </div>
+        </div>
+      </template>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed } from "vue";
-import { Connection, Search, Grid, DataBoard, Warning, Delete, ArrowRight } from "@element-plus/icons-vue";
+import { computed, reactive, ref } from "vue";
+import {
+  ArrowRight,
+  Grid,
+  Histogram,
+  List,
+  Search,
+  Share,
+  TrendCharts,
+} from "@element-plus/icons-vue";
 import ChartContainer from "../components/ChartContainer.vue";
 import { calculateCollinearity } from "../api/preprocessing";
 import type { CollinearityRequest, CollinearityResponse } from "../types/api";
+import { ApiError } from "../api/client";
 import { ElMessage } from "element-plus";
+
+const ACTION_LABELS: Record<string, string> = {
+  keep: "保留",
+  drop: "建议剔除",
+  merge: "建议合并",
+  review: "需复核",
+};
 
 const loading = ref(false);
 const result = ref<CollinearityResponse | null>(null);
+const errorMessage = ref("");
+const inputColumnsText = ref("u1,u2,u3");
 
 const form = reactive<CollinearityRequest>({
-  dataset_id: "ds_s3_demo",
-  version_id: "V3_Delayed",
+  version_id: "",
+  input_columns: [],
+  correlation_threshold: 0.9,
   vif_threshold: 10,
 });
 
-const handleDiagnose = async () => {
+const handleAnalyze = async () => {
+  errorMessage.value = "";
+  if (!form.version_id) {
+    errorMessage.value = "请先填写数据版本 ID。";
+    return;
+  }
+  form.input_columns = inputColumnsText.value
+    .split(",")
+    .map((name) => name.trim())
+    .filter(Boolean);
+  if (form.input_columns.length < 2) {
+    errorMessage.value = "共线性分析至少需要两个输入变量。";
+    return;
+  }
+
   loading.value = true;
   try {
-    const res = await calculateCollinearity(form);
-    result.value = res;
+    result.value = await calculateCollinearity(form);
+    ElMessage.success("共线性诊断完成");
   } catch (err) {
-    // Mock fallback for Phase 1
-    result.value = {
-      dataset_id: form.dataset_id,
-      version_id: form.version_id,
-      variables: ["y", "u1", "u2", "u3"],
-      correlation_matrix: [
-        [1.0, 0.72, 0.68, 0.12],
-        [0.72, 1.0, 0.96, 0.05],
-        [0.68, 0.96, 1.0, 0.08],
-        [0.12, 0.05, 0.08, 1.0],
-      ],
-      vif_scores: { u1: 14.2, u2: 13.8, u3: 1.05 },
-      recommended_drops: ["u2"],
-    };
-    ElMessage.success("共线性与 VIF 诊断完成");
+    // No mock fallback: a fabricated correlation matrix could justify deleting a real tag.
+    result.value = null;
+    errorMessage.value = err instanceof ApiError ? err.message : String(err);
   } finally {
     loading.value = false;
   }
 };
 
-const handleDropVariable = () => {
-  ElMessage.success("已成功剔除共线性变量 u2，生成数据版本 V4_Selected");
-};
+const dropCount = computed(
+  () => (result.value?.recommendations ?? []).filter((item) => item.action === "drop").length
+);
+
+const conditionSeverity = computed(() => {
+  const value = result.value?.condition_number;
+  if (value === null || value === undefined) return "info";
+  if (value >= 100) return "danger";
+  if (value >= 30) return "warning";
+  return "success";
+});
 
 const heatmapOptions = computed(() => {
   if (!result.value) return {};
-  const data = [];
-  const matrix = result.value.correlation_matrix;
-  for (let i = 0; i < matrix.length; i++) {
-    for (let j = 0; j < matrix[i].length; j++) {
-      data.push([i, j, matrix[i][j]]);
-    }
-  }
-
+  const names = result.value.variables;
+  const data: [number, number, number][] = [];
+  result.value.matrix.forEach((row, i) => {
+    row.forEach((value, j) => data.push([j, i, Number(value.toFixed(3))]));
+  });
   return {
-    tooltip: { position: "top" },
-    grid: { height: "70%", top: "10%" },
-    xAxis: { type: "category", data: result.value.variables },
-    yAxis: { type: "category", data: result.value.variables },
+    tooltip: {
+      formatter: (params: any) =>
+        `${names[params.value[1]]} × ${names[params.value[0]]}<br/>r = ${params.value[2]}`,
+    },
+    grid: { left: "12%", right: "10%", bottom: "12%", top: "6%" },
+    xAxis: { type: "category", data: names, splitArea: { show: true } },
+    yAxis: { type: "category", data: names, splitArea: { show: true } },
     visualMap: {
-      min: 0,
+      min: -1,
       max: 1,
       calculable: true,
-      orient: "horizontal",
-      left: "center",
-      bottom: "0%",
-      inRange: { color: ["#ffffff", "#e8f1f5", "#1e6091", "#e76f51"] },
+      orient: "vertical",
+      right: "2%",
+      top: "middle",
+      inRange: { color: ["#457B9D", "#F1FAEE", "#E63946"] },
     },
     series: [
       {
-        name: "Pearson Correlation",
         type: "heatmap",
-        data: data,
-        label: { show: true },
+        data,
+        label: { show: names.length <= 8 },
+        emphasis: { itemStyle: { shadowBlur: 10 } },
       },
     ],
   };
 });
 
-const vifChartOptions = computed(() => {
+const vifOptions = computed(() => {
   if (!result.value) return {};
-  const keys = Object.keys(result.value.vif_scores);
-  const values = Object.values(result.value.vif_scores);
-
+  const names = result.value.variables;
+  const threshold = form.vif_threshold ?? 10;
   return {
     tooltip: { trigger: "axis" },
-    xAxis: { type: "value", name: "VIF 数值" },
-    yAxis: { type: "category", data: keys },
+    grid: { left: "3%", right: "4%", bottom: "10%", containLabel: true },
+    xAxis: { type: "category", data: names },
+    yAxis: { type: "value", name: "VIF" },
     series: [
       {
-        name: "VIF 方差膨胀因子",
         type: "bar",
-        color: "#E76F51",
-        data: values,
+        data: names.map((name) => {
+          const value = result.value!.vif_scores[name] ?? 0;
+          return {
+            value: Number.isFinite(value) ? value : 0,
+            itemStyle: { color: value >= threshold ? "#E63946" : "#2A9D8F" },
+          };
+        }),
         markLine: {
-          data: [{ xAxis: 10, name: "VIF=10 警戒线" }],
-          lineStyle: { type: "dashed", color: "red" },
+          symbol: "none",
+          data: [{ yAxis: threshold, name: "阈值" }],
+          lineStyle: { type: "dashed", color: "#E76F51" },
         },
       },
     ],
   };
 });
+
+const actionLabel = (action: string) => ACTION_LABELS[action] ?? action;
+
+const actionType = (action: string) =>
+  action === "drop" ? "danger" : action === "review" ? "warning" : "success";
+
+const formatNumber = (value: number | null | undefined) => {
+  if (value === null || value === undefined || !Number.isFinite(value)) return "—";
+  if (Math.abs(value) >= 10000) return value.toExponential(2);
+  return value.toFixed(2);
+};
 </script>
 
 <style scoped>
@@ -205,9 +308,30 @@ const vifChartOptions = computed(() => {
   gap: 20px;
 }
 
-.collinearity-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 20px;
+.alert-gap {
+  margin-top: 12px;
+}
+
+.group-block {
+  margin-top: 14px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.group-title {
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.group-tag {
+  margin-right: 4px;
+}
+
+.footer-actions {
+  margin-top: 16px;
+  display: flex;
+  justify-content: flex-end;
 }
 </style>

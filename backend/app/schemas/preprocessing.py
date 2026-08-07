@@ -156,6 +156,7 @@ class DelayRequest(Schema):
     output_column: str = Field(min_length=1)
     max_lag: int = Field(default=100, ge=0, le=10_000)
     top_k: int = Field(default=3, ge=1, le=20)
+    dataset_id: UUID | None = None
 
 
 class DelayPeak(Schema):
@@ -171,6 +172,13 @@ class DelayData(Schema):
     correlations: dict[str, list[float]]
     best_delays: dict[str, int]
     candidate_peaks: dict[str, list[DelayPeak]]
+    dataset_id: UUID | None = None
+    # Validation free-run FIT achieved by the refined delay set. Cross-correlation only
+    # proposes candidates; this is the number that actually chose between them.
+    validation_fit: float | None = None
+    refinement_rounds: int = Field(default=0, ge=0)
+    uncertain_columns: list[str] = Field(default_factory=list)
+    prewhitening_orders: dict[str, int] = Field(default_factory=dict)
 
 
 class CollinearityRequest(Schema):
@@ -178,6 +186,8 @@ class CollinearityRequest(Schema):
     input_columns: list[str] = Field(min_length=2)
     correlation_threshold: float = Field(default=0.9, gt=0, le=1)
     vif_threshold: float = Field(default=10.0, gt=1)
+    dataset_id: UUID | None = None
+    output_column: str | None = None
 
 
 class VariableRecommendation(Schema):
@@ -195,3 +205,6 @@ class CollinearityData(Schema):
     vif_scores: dict[str, float]
     condition_number: float | None = None
     recommendations: list[VariableRecommendation]
+    dataset_id: UUID | None = None
+    spearman_matrix: list[list[float]] = Field(default_factory=list)
+    correlated_groups: list[list[str]] = Field(default_factory=list)

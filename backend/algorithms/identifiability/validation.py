@@ -144,17 +144,24 @@ def free_run_simulate(
         column: np.asarray(inputs[column], dtype=float) for column in structure.input_columns
     }
 
+    # The input contribution does not depend on the simulated output, so it is computed
+    # for the whole horizon at once. Only the output feedback has to stay sequential,
+    # which turns the inner loop from O(horizon * inputs * nb) Python operations into
+    # O(horizon * na) — the closed-loop optimiser runs this thousands of times.
+    contribution = np.zeros(n_samples, dtype=float)
+    index = np.arange(first, last, dtype=int)
+    for column in structure.input_columns:
+        signal = signals[column]
+        delay = structure.nk[column]
+        coefficients = b_values[column]
+        for lag in range(structure.nb[column]):
+            contribution[index] += coefficients[lag] * signal[index - delay - lag]
+
     simulated = measured.copy()
     for time_index in range(first, last):
-        value = 0.0
+        value = float(contribution[time_index])
         for lag in range(1, structure.na + 1):
             value -= a_values[lag - 1] * simulated[time_index - lag]
-        for column in structure.input_columns:
-            signal = signals[column]
-            delay = structure.nk[column]
-            coefficients = b_values[column]
-            for lag in range(structure.nb[column]):
-                value += coefficients[lag] * signal[time_index - delay - lag]
         if not np.isfinite(value):
             value = float(simulated[time_index - 1])
         simulated[time_index] = value

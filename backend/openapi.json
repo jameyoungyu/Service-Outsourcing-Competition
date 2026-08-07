@@ -971,6 +971,7 @@
           "Preprocessing"
         ],
         "summary": "Queue multi-variable lag-correlation analysis",
+        "description": "Prewhitened cross-correlation candidates, refined on the validation split.",
         "operationId": "estimate_delay_api_v1_preprocessing_delay_post",
         "requestBody": {
           "content": {
@@ -1042,6 +1043,7 @@
           "Preprocessing"
         ],
         "summary": "Queue Pearson and VIF collinearity diagnostics",
+        "description": "Pearson, Spearman, VIF and condition number with advisory recommendations.",
         "operationId": "analyze_collinearity_api_v1_preprocessing_collinearity_post",
         "requestBody": {
           "content": {
@@ -2460,6 +2462,38 @@
             },
             "type": "array",
             "title": "Recommendations"
+          },
+          "dataset_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dataset Id"
+          },
+          "spearman_matrix": {
+            "items": {
+              "items": {
+                "type": "number"
+              },
+              "type": "array"
+            },
+            "type": "array",
+            "title": "Spearman Matrix"
+          },
+          "correlated_groups": {
+            "items": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "type": "array",
+            "title": "Correlated Groups"
           }
         },
         "additionalProperties": false,
@@ -2501,6 +2535,29 @@
             "exclusiveMinimum": 1.0,
             "title": "Vif Threshold",
             "default": 10.0
+          },
+          "dataset_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dataset Id"
+          },
+          "output_column": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Output Column"
           }
         },
         "additionalProperties": false,
@@ -3680,6 +3737,49 @@
             },
             "type": "object",
             "title": "Candidate Peaks"
+          },
+          "dataset_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dataset Id"
+          },
+          "validation_fit": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Validation Fit"
+          },
+          "refinement_rounds": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Refinement Rounds",
+            "default": 0
+          },
+          "uncertain_columns": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Uncertain Columns"
+          },
+          "prewhitening_orders": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "Prewhitening Orders"
           }
         },
         "additionalProperties": false,
@@ -3756,6 +3856,18 @@
             "minimum": 1.0,
             "title": "Top K",
             "default": 3
+          },
+          "dataset_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dataset Id"
           }
         },
         "additionalProperties": false,

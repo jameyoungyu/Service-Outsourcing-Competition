@@ -66,6 +66,11 @@ from app.services.dataset_service import (
 )
 from app.services.identification_service import ArxDomainError
 from app.services.identification_service import fit_arx as fit_arx_service
+from app.services.preprocessing_analysis_service import (
+    AnalysisDomainError,
+    run_collinearity_analysis,
+    run_delay_estimation,
+)
 from app.services.segment_service import SegmentDomainError, select_dynamic_segments
 from app.services.simulation_service import generate_simulation as generate_simulation_service
 
@@ -409,18 +414,27 @@ async def segment_data(
     response_model=SuccessEnvelope[DelayData],
     responses=ERROR_RESPONSES,
 )
-async def estimate_delay(request: Request, payload: DelayRequest) -> SuccessEnvelope[DelayData]:
-    return success(
-        request,
-        DelayData(
-            source_version_id=payload.version_id,
-            task=queued_task(stage="estimate_delays"),
-            delays=[],
-            correlations={column: [] for column in payload.input_columns},
-            best_delays={},
-            candidate_peaks={},
-        ),
-    )
+async def estimate_delay(
+    request: Request,
+    payload: DelayRequest,
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> SuccessEnvelope[DelayData]:
+    """Prewhitened cross-correlation candidates, refined on the validation split."""
+
+    try:
+        data = await run_delay_estimation(
+            session,
+            payload=payload,
+            artifact_root=get_settings().artifact_root,
+        )
+    except AnalysisDomainError as error:
+        raise AppError(
+            error.code,
+            error.message,
+            status_code=error.status_code,
+            details=error.details,
+        ) from error
+    return success(request, data)
 
 
 @router.post(
@@ -432,20 +446,26 @@ async def estimate_delay(request: Request, payload: DelayRequest) -> SuccessEnve
     responses=ERROR_RESPONSES,
 )
 async def analyze_collinearity(
-    request: Request, payload: CollinearityRequest
+    request: Request,
+    payload: CollinearityRequest,
+    session: Annotated[AsyncSession, Depends(get_session)],
 ) -> SuccessEnvelope[CollinearityData]:
-    return success(
-        request,
-        CollinearityData(
-            source_version_id=payload.version_id,
-            task=queued_task(stage="analyze_collinearity"),
-            variables=payload.input_columns,
-            matrix=[],
-            vif_scores={},
-            condition_number=None,
-            recommendations=[],
-        ),
-    )
+    """Pearson, Spearman, VIF and condition number with advisory recommendations."""
+
+    try:
+        data = await run_collinearity_analysis(
+            session,
+            payload=payload,
+            artifact_root=get_settings().artifact_root,
+        )
+    except AnalysisDomainError as error:
+        raise AppError(
+            error.code,
+            error.message,
+            status_code=error.status_code,
+            details=error.details,
+        ) from error
+    return success(request, data)
 
 
 @router.post(
