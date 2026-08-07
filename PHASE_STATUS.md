@@ -57,18 +57,37 @@
 - 阶段 3 前端：`DatasetsView.vue` 与 `DatasetDetailView.vue` 彻底同步真实后端数据库列表、统计量矩阵与质量分析报告，全量前端构建与测试通过；
 - Gemini → GPT 阶段 3 反向交接文档已落盘。
 
+### 差异化创新增补（INNO-1.0，2026-08-07）
+
+- 官方赛题手册 A14 与初赛评分标准复核，识别同质化风险并定义 7 个差异化创新点：`docs/innovation/differentiation-blueprint.md`；
+- 算法口径增量规范 `ALG-0.2` 落盘：`docs/algorithms/algorithm-specification-v2.md`；
+- **创新 1 原型完成**：`backend/algorithms/identifiability/` —— Fisher 信息矩阵、`log det` D-最优准则、持续激励阶次判据、矩阵行列式引理增量增益、lazy greedy（CELF）子模最大化窗口优选、energy 对照基线；
+- **创新 2 原型完成**：自由仿真、稳态增益、`A(q)` 稳定性判别、残差白度；
+- 消融实验执行器 `backend/scripts/benchmark_identifiability.py` 与 10 组种子实验报告 `docs/experiments/identifiability-ablation.md` / `.json`；
+- 新增 S6 异构激励仿真场景定义（现有 S1–S5 均为同构激励，无法暴露按能量选段的失效模式）；
+- 阶段计划已同步创新增补至阶段 2、5、7、8、9、10、11。
+
 ## 未完成
 
-- 阶段 4 预处理清洗、时间规整和动态区间选择。
+- 阶段 4 预处理清洗、时间规整和动态区间选择；
+- 创新 1、2 原型接入服务层与 API（阶段 5、7）；
+- 创新 3–7 全部待实现（血缘缓存、策略记忆库、零幻觉报告、合规证明、约束辨识、自评测基准 UI）；
+- S6 场景并入 `app/services/simulation_service.py` 并输出标准真值文件；
+- `EXP-1.0` §7 遗留实验：完整加权分对照、窗口长度/预算敏感性扫描、公开数据集验证。
 
 ## 当前问题
 
 - 阶段 3 已全量完成并验证；阶段 4 将正式接入重采样、线性/前向插值、Hampel/IQR 异常清洗及无标签动态区间筛选算法。
+- **待开发者确认**（`INNO-1.0` §12）：是否接受 IDS 取代加权质量分作为阶段 5 主口径、自由仿真 FIT 取代一步预测 FIT 作为阶段 7/8 主指标、新增 S6 场景、+13.5 天排期增量，以及是否启动专利申请。未确认前创新 3–7 不进入正式编码。
 
 ## 关键决策
 
 - 第一版采用离散时间 MISO ARX；
 - 训练/验证/测试按时间顺序划分；
+- 动态区间优选以 Fisher 信息 `log det`（D-最优）为主口径，加权质量分降级为可解释性对照（`ALG-0.2` §2）；
+- 模型主指标为自由仿真 FIT，一步预测 FIT 降级为诊断量（`ALG-0.2` §5）；
+- 持续激励阶次不足时阻断建模，不降级为警告（`ALG-0.2` §3）；
+- 报告中 LLM 不得输出数字字面量，只能输出可溯源占位符（`ALG-0.2` §8）；
 - 原始数据不可覆盖，处理形成版本血缘；
 - Agent 仅调用白名单工具；
 - Optuna 不得使用测试集调参；
@@ -92,7 +111,10 @@
 - Docker Compose：阶段 3 镜像构建、本地产物卷挂载、PostgreSQL/Redis 就绪、Alembic `0002_datasets_and_profiles (head)` 通过；容器内真实 multipart CSV 上传 → Profile → 列配置闭环通过；
 - 前端 Vitest 测试：`3 passed` (Pinia Store、ApiClient & ApiError)；
 - 前端 Vite 构建：`built in 462ms` (打包验证成功)；
-- 文档完整性检查：通过。
+- 文档完整性检查：通过；
+- 创新原型测试：`tests/test_identifiability.py` `27 passed`（回归矩阵口径、无噪参数恢复、PE 阶次教科书标定、行列式引理与直接 `log det` 差一致性、lazy greedy 与朴素贪心逐窗口一致、信息增益单调不增、分区不越界、异构激励下优于 energy、自由仿真无噪精确复现、一步预测掩盖劣质模型、稳态增益解析值、不稳定多项式检出）；
+- 创新原型 Ruff 与 Mypy：通过（`algorithms/identifiability`、`scripts/benchmark_identifiability.py`、`tests/test_identifiability.py`）；
+- 消融实验：10 组随机种子 × 2 场景（S3/S6）× 3 策略，结果见 `docs/experiments/identifiability-ablation.json`。
 
 ## 验收结论
 

@@ -12,7 +12,30 @@
 - CSV 上传、SHA-256 去重、UTF-8/GBK/GB2312 编码和逗号/分号/Tab 识别：已实现。
 - PostgreSQL 数据集/版本/列/Profile/处理运行表、真实数据集 API 与质量画像：已实现。
 - OpenAPI 3.1.0：已重新导出至 `backend/openapi.json`，并保持已有字段兼容。
+- 差异化创新蓝图与算法口径增量（`INNO-1.0` / `ALG-0.2`）：已落盘；创新 1、2 原型已实现并通过 27 个测试与消融实验。
 - 仍待阶段 4+ 实现：清洗、优选、时滞、共线性和闭环寻优；阶段 3 前端需按交接文档接入真实数据资产 API。
+
+## 差异化创新
+
+赛题任务清单本身即实现说明书，按字面实现会与其他队伍高度同质化。差异化设计见：
+
+- [`docs/innovation/differentiation-blueprint.md`](docs/innovation/differentiation-blueprint.md)：7 个创新点、评分标准映射、排期增量与降级顺序；
+- [`docs/algorithms/algorithm-specification-v2.md`](docs/algorithms/algorithm-specification-v2.md)：相对 `ALG-0.1` 的算法口径增量；
+- [`docs/experiments/identifiability-ablation.md`](docs/experiments/identifiability-ablation.md)：10 组种子的消融实验证据。
+
+核心结论（实测，非设想）：
+
+- 以 Fisher 信息 `log det`（D-最优）选段，用 **13.5% 的数据**达到全量数据的辨识精度，且设计矩阵条件数更优；
+- 同等预算下常规能量启发式在异构激励场景下**崩溃**（自由仿真 FIT 掉 12.83 个百分点，稳态增益误差 100%）；
+- **一步预测 FIT 的区分度仅为自由仿真 FIT 的 1/27.7**，不适合作为闭环寻优的目标函数。
+
+复现：
+
+```bash
+cd backend
+python -m pytest tests/test_identifiability.py -q
+python scripts/benchmark_identifiability.py --repeats 10
+```
 
 ## 文件目录
 
