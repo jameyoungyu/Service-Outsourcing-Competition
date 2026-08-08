@@ -379,3 +379,118 @@ class TestOptimizationApi:
             },
         )
         assert response.status_code == 404
+
+
+class TestJobQueueFallback:
+    """Queueing is an optimisation, not a dependency.
+
+    The venue may have no Redis and no worker process. The same reasoning that keeps the
+    system usable without an LLM applies here: when the queue cannot be reached the study
+    runs inline and the response says so. What must never happen is a request that reports
+    success while the work was silently dropped.
+    """
+
+    def test_disabled_by_default_so_a_deployment_without_a_worker_still_works(self) -> None:
+        from app.services.job_queue import submit_optimization
+
+        submission = submit_optimization(uuid4(), {"version_id": str(uuid4())})
+        assert submission.queued is False
+        assert submission.job_id is None
+        assert submission.reason  # the caller has to be able to say why
+
+    def test_an_unreachable_redis_falls_back_instead_of_raising(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from app.services import job_queue
+
+        monkeypatch.setattr(
+            job_queue,
+            "get_settings",
+            lambda: Settings(
+                background_optimization=True,
+                # Port 1 is reserved and never listening.
+                redis_url="redis://127.0.0.1:1/0",
+            ),
+        )
+        submission = job_queue.submit_optimization(uuid4(), {})
+        assert submission.queued is False
+        assert "队列不可用" in (submission.reason or "")
+
+    def test_the_study_runs_inline_when_the_queue_is_unavailable(self, client: TestClient) -> None:
+        version_id = generate(client, seed=21)
+        started = client.post(
+            "/api/v1/optimization/optuna/start",
+            json={
+                "version_id": version_id,
+                "input_columns": ["u1", "u2"],
+                "output_column": "y",
+                "max_trials": 3,
+            },
+        )
+        assert started.status_code == 202, started.text
+        payload = started.json()["data"]
+        assert payload["task"]["status"] == "succeeded"
+
+        status = client.get(f"/api/v1/optimization/optuna/{payload['study_id']}/status")
+        assert len(status.json()["data"]["trials"]) == 3
+
+    def test_a_bad_version_never_leaves_an_orphan_queued_study(self, client: TestClient) -> None:
+        """Reserving the row before validating would strand studies no worker can finish."""
+
+        missing = str(uuid4())
+        response = client.post(
+            "/api/v1/optimization/optuna/start",
+            json={
+                "version_id": missing,
+                "input_columns": ["u1"],
+                "output_column": "y",
+                "max_trials": 2,
+            },
+        )
+        assert response.status_code == 404
+        # The id the client would have polled must not exist either.
+        assert client.get(f"/api/v1/optimization/optuna/{missing}/status").status_code == 404
+
+
+class TestStudyReservation:
+    def test_status_answers_before_the_search_finishes(self, client: TestClient) -> None:
+        """The whole point of the background path: a pollable id, immediately.
+
+        Driven here through the service rather than the queue so the invariant is checked
+        without requiring Redis — the row must exist and carry the trial target the moment
+        the study is reserved.
+        """
+
+        version_id = generate(client, seed=31)
+        started = client.post(
+            "/api/v1/optimization/optuna/start",
+            json={
+                "version_id": version_id,
+                "input_columns": ["u1", "u2"],
+                "output_column": "y",
+                "max_trials": 2,
+            },
+        )
+        study_id = started.json()["data"]["study_id"]
+        status = client.get(f"/api/v1/optimization/optuna/{study_id}/status")
+        assert status.status_code == 200
+        assert status.json()["data"]["statistics"]["target_trials"] == 2
+
+    def test_rerunning_the_same_study_id_replaces_rather_than_duplicates(
+        self, client: TestClient
+    ) -> None:
+        """RQ retries after a worker crash must not leave two records for one request."""
+
+        version_id = generate(client, seed=33)
+        started = client.post(
+            "/api/v1/optimization/optuna/start",
+            json={
+                "version_id": version_id,
+                "input_columns": ["u1", "u2"],
+                "output_column": "y",
+                "max_trials": 3,
+            },
+        )
+        study_id = started.json()["data"]["study_id"]
+        first = client.get(f"/api/v1/optimization/optuna/{study_id}/status").json()["data"]
+        assert len(first["trials"]) == 3

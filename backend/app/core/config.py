@@ -24,6 +24,13 @@ class Settings(BaseSettings):
         description="SQLAlchemy asynchronous database URL.",
     )
     redis_url: str = "redis://localhost:6379/0"
+    # Hand long closed-loop studies to an RQ worker instead of running them in the request.
+    # Off by default: a single-machine offline deployment has no worker process, and a
+    # study that is queued but never picked up is worse than one that simply blocks.
+    background_optimization: bool = Field(
+        default=False,
+        description="启用后，闭环寻优交由 RQ Worker 执行；Redis 或 Worker 不可用时自动回退为同步执行。",
+    )
     artifact_root: Path = Field(
         default_factory=lambda: Path(__file__).resolve().parents[2] / "data",
         description="Root directory for local simulation and model artifacts.",

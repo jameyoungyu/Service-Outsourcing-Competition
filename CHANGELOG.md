@@ -140,6 +140,32 @@
 - 仿真页只提供 S1–S5 单选项，**后端支持 S6 已久而前端从未暴露**——S6 正是整套差异化论证的支点。
   已补上单选项，副标题的"S1-S5"同步更正为"S1-S6"，并由 E2E 断言六个场景全部可见，防止再次漂移。
 
+### Added (2026-08-08，长任务后台化)
+
+- `app/services/job_queue.py` 与 `app/worker.py`：闭环寻优可交由 RQ Worker 执行，
+  HTTP 请求不再为一次 120 trial 的寻优挂住数分钟。API 与 Worker 走**同一个**
+  `execute_study` 内核——一个算得和 API 不一样的 Worker 比没有 Worker 更糟；
+- 研究行在任何耗时工作开始**之前**就以 `queued` 写入，`/status` 立即可查。
+  否则客户端拿到的 study_id 在整个有用窗口内都返回 404；
+- 队列不可用时自动回退为同步执行，并在返回消息中说明走的是哪条路径。
+  与大模型同一套原则：队列是优化项而非依赖项，赛场可能没有 Redis。
+  唯一不允许发生的是"报告成功但工作被悄悄丢弃"；
+- `INDUSOPT_BACKGROUND_OPTIMIZATION` 开关，默认**关闭**：单机离线部署没有 Worker 进程，
+  一个被排队却永远无人执行的任务比一个阻塞的请求更糟；
+- `tests/test_worker_queue.py`：真实 Redis + 真实 `rq worker` 子进程的往返验证。
+  无 Redis 时跳过——跳过是诚实的行为，但跳过也不构成验证，因此交接报告如实记录它实际跑过的环境。
+
+### Fixed (2026-08-08，长任务后台化)
+
+- **`docker-compose.yml` 的 worker 监听默认队列，而任务入的是 `indusopt` 队列**——
+  该 Worker 永远不会取到任何任务，寻优会无声地堆积。已改为 `rq worker indusopt`；
+- 研究执行中途崩溃会把行永久卡在 `running`，轮询的客户端无法区分"还在跑"与"一小时前就死了"。
+  现在失败会落 `failed` 并记录错误码；
+- `_persist_study` 由插入改为按 study_id 更新，并先清掉旧 trial：Worker 崩溃后 RQ 重试
+  不会为同一次请求留下两条研究记录；
+- 最终统计中保留 `target_trials`：请求 50 个 trial 实际完成 12 个，与请求 12 个完成 12 个，
+  是两件不同的事，只看最终统计分不出来。
+
 ### Verification
 
 - pytest `6 passed`、Ruff、Mypy、OpenAPI JSON 校验通过；
@@ -147,8 +173,9 @@
 - 阶段 2 pytest `17 passed`，涵盖 S1–S5、随机种子重现、无噪声参数恢复、时间顺序与真实 API 闭环。
 - 阶段 3 pytest `23 passed`，新增 CSV 异常、GBK/分号识别、去重、真实 Profile、列映射、版本与删除路由测试；PostgreSQL Docker 迁移和 multipart 上传闭环通过。
 - 创新原型 pytest `27 passed`（`tests/test_identifiability.py`），Ruff 与 Mypy 通过；消融实验覆盖 10 组随机种子 × 2 场景 × 3 策略。
-- 阶段 4–11：后端 pytest `225 passed`（含 2 项端到端用例验收、21 项大模型集成测试、10 项
-  加权分对照基线测试与 7 项行预算/预算提示测试），Ruff 与 Mypy 全部通过（68 个源文件）；
+- 阶段 4–11：后端 pytest `233 passed`（含 2 项端到端用例验收、21 项大模型集成测试、10 项
+  加权分对照基线测试、7 项行预算/预算提示测试，以及 2 项**真实 Redis + 真实 RQ Worker**
+  往返验证），Ruff 与 Mypy 全部通过（69 个源文件）；
   前端 Vite 构建通过、`vue-tsc --noEmit` 退出码 0、Vitest `3 passed`、
   Playwright E2E `9 passed`（真实浏览器 + 真实后端，冷启动约 15 秒）；
   Alembic 单一 head `0003_optimization_and_memory`；

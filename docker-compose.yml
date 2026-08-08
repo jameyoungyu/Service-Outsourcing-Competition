@@ -6,6 +6,10 @@ services:
       INDUSOPT_DATABASE_URL: postgresql+asyncpg://indusopt:indusopt@postgres:5432/indusopt
       INDUSOPT_REDIS_URL: redis://redis:6379/0
       INDUSOPT_APP_ENV: development
+      # With a worker in the stack, hand long closed-loop studies to it instead of holding
+      # the HTTP request open for minutes. Falls back to inline execution automatically if
+      # Redis or the worker is unavailable.
+      INDUSOPT_BACKGROUND_OPTIMIZATION: ${INDUSOPT_BACKGROUND_OPTIMIZATION:-true}
       # Large language model. Leave INDUSOPT_LLM_PROVIDER unset or "none" to run fully
       # offline on the deterministic planner. To enable, point these at any
       # OpenAI-compatible endpoint — DeepSeek, Ollama, vLLM, Xinference, self-hosted
@@ -30,11 +34,17 @@ services:
   worker:
     build:
       context: ./backend
-    command: rq worker --url redis://redis:6379/0
+    # Must name the queue: jobs are enqueued to "indusopt", and a worker left on the
+    # default queue would idle forever while studies pile up unprocessed.
+    command: rq worker indusopt --url redis://redis:6379/0
     environment:
       INDUSOPT_DATABASE_URL: postgresql+asyncpg://indusopt:indusopt@postgres:5432/indusopt
       INDUSOPT_REDIS_URL: redis://redis:6379/0
       INDUSOPT_APP_ENV: development
+      # With a worker in the stack, hand long closed-loop studies to it instead of holding
+      # the HTTP request open for minutes. Falls back to inline execution automatically if
+      # Redis or the worker is unavailable.
+      INDUSOPT_BACKGROUND_OPTIMIZATION: ${INDUSOPT_BACKGROUND_OPTIMIZATION:-true}
       # Large language model. Leave INDUSOPT_LLM_PROVIDER unset or "none" to run fully
       # offline on the deterministic planner. To enable, point these at any
       # OpenAI-compatible endpoint — DeepSeek, Ollama, vLLM, Xinference, self-hosted

@@ -9,7 +9,7 @@ ARX 辨识与闭环寻优，交付可复现的数据版本、模型、指标与*
 
 ## 交付状态
 
-阶段 0–11 全部开发完成。完整闭环已在 225 个后端自动化测试下贯通（其中 2 项为端到端用例验收）：
+阶段 0–11 全部开发完成。完整闭环已在 233 个后端自动化测试下贯通（其中 2 项为端到端用例验收）：
 
 ```text
 工业 CSV 上传
@@ -55,8 +55,23 @@ export INDUSOPT_LLM_MODEL=qwen2.5:7b
 
 因此模型不可用、输出畸形、甚至刻意越权，最坏结果都只是"回退 + 说明"，而不是错误的产物。
 
-**尚未完成**：公开数据集外部验证、长时寻优的 Redis + RQ 后台化、Docker Compose 实机启动验证
+**尚未完成**：公开数据集外部验证、Docker Compose 实机启动验证
 （本开发环境无 Docker 守护进程，详见 `PHASE_STATUS.md`）。
+
+### 长任务后台化
+
+一次 120 trial 的闭环寻优是分钟级的，挂住 HTTP 连接迟早会被前置代理掐断。因此寻优可交给
+RQ Worker：
+
+```bash
+export INDUSOPT_BACKGROUND_OPTIMIZATION=true
+PYTHONPATH=. rq worker indusopt --url redis://localhost:6379/0
+```
+
+接口立即返回 `202 queued` 与 study_id，`/optimization/optuna/{id}/status` 从提交那一刻起就可轮询。
+**默认关闭**：单机离线部署没有 Worker 进程，一个被排队却永远无人执行的任务比一个阻塞的请求更糟。
+Redis 或 Worker 不可用时自动回退为同步执行，并在返回消息里说明走的是哪条路径——
+队列是优化项而非依赖项，唯一不允许发生的是"报告成功但工作被悄悄丢弃"。
 
 ## 差异化创新
 
@@ -88,7 +103,7 @@ export INDUSOPT_LLM_MODEL=qwen2.5:7b
 
 ```bash
 cd backend
-python -m pytest -q                                   # 225 passed
+python -m pytest -q                                   # 233 passed
 python scripts/benchmark_identifiability.py --repeats 10
 python scripts/sweep_selection_sensitivity.py --repeats 5
 curl -X POST http://localhost:18000/api/v1/benchmark/run \

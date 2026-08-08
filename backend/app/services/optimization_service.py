@@ -37,7 +37,7 @@ from algorithms.pipeline.fingerprint import (
     fingerprint_distance,
 )
 from optuna.samplers import TPESampler
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.operation_log import OperationLog
@@ -50,7 +50,8 @@ from app.schemas.optimization import (
     OptimizationTrial,
 )
 from app.schemas.preprocessing import SegmentRequest
-from app.services.contract_stubs import completed_task
+from app.services.contract_stubs import completed_task, queued_task
+from app.services.job_queue import submit_optimization
 from app.services.modeling_service import ArxCoreResult, ModelingDomainError, fit_arx_core
 from app.services.segment_service import SegmentDomainError, run_segment_selection
 from app.services.version_data import VersionDataError, VersionSeries, load_version_series
@@ -167,8 +168,14 @@ def run_study(
     output_column: str,
     warm_start: list[dict[str, Any]] | None = None,
     warm_start_source: UUID | None = None,
+    study_id: UUID | None = None,
 ) -> StudyOutcome:
-    """Execute the closed loop synchronously and return everything it learned."""
+    """Execute the closed loop synchronously and return everything it learned.
+
+    ``study_id`` is supplied when the caller already reserved a row for this study, which
+    both the API and the worker do so that ``/status`` answers before the search finishes.
+    Left unset it allocates its own, which is what the offline experiment scripts want.
+    """
 
     inputs = {column: series.values[column] for column in input_columns}
     output = series.values[output_column]
@@ -333,7 +340,7 @@ def run_study(
         ),
     }
     return StudyOutcome(
-        study_id=uuid4(),
+        study_id=study_id or uuid4(),
         trials=trials,
         best_number=best.number if best else None,
         best_value=best.value if best else None,
@@ -352,7 +359,70 @@ async def start_optimization_study(
     payload: OptimizationStartRequest,
     artifact_root: Path,
 ) -> OptimizationStartData:
-    """Load the version, retrieve a warm start, run the loop and persist everything."""
+    """Allocate the study, then either hand it to a worker or run it here.
+
+    The study row is written as ``queued`` *before* anything long starts, so ``/status``
+    answers immediately in both paths and the client never holds a study id that the
+    database has not heard of.
+
+    Queueing is best-effort by design (see ``job_queue``): if Redis or the worker is not
+    there, the study runs inline and the returned message says which path was taken. What
+    it never does is report success for work that was dropped.
+    """
+
+    # Fail fast on a bad version before allocating anything, so a typo does not leave a
+    # queued study behind that no worker can ever complete.
+    try:
+        await load_version_series(
+            session, version_id=payload.version_id, artifact_root=artifact_root
+        )
+    except VersionDataError as error:
+        raise OptimizationDomainError(
+            error.code, error.message, status_code=error.status_code, details=error.details
+        ) from error
+
+    study_id = uuid4()
+    await _reserve_study(session, study_id=study_id, payload=payload)
+
+    submission = submit_optimization(study_id, payload.model_dump(mode="json"))
+    if submission.queued:
+        return OptimizationStartData(
+            study_id=study_id,
+            task=queued_task(
+                status="queued",
+                stage="optimize_pipeline",
+                message=f"闭环寻优已提交后台执行（作业 {submission.job_id}），请轮询研究状态。",
+            ),
+        )
+
+    statistics = await execute_study(
+        session, study_id=study_id, payload=payload, artifact_root=artifact_root
+    )
+    suffix = f"（{submission.reason}，已同步执行）" if submission.reason else ""
+    return OptimizationStartData(
+        study_id=study_id,
+        task=completed_task(
+            stage="optimize_pipeline",
+            message=(
+                f"闭环寻优完成：{statistics['completed_trials']} 个有效试验，"
+                f"缓存命中率 {statistics['hit_rate']:.0%}。{suffix}"
+            ),
+        ),
+    )
+
+
+async def execute_study(
+    session: AsyncSession,
+    *,
+    study_id: UUID,
+    payload: OptimizationStartRequest,
+    artifact_root: Path,
+) -> dict[str, Any]:
+    """Run one reserved study to completion and persist it. Shared by API and worker.
+
+    Both callers go through this function on purpose. A worker that computed something
+    subtly different from the synchronous path would be worse than having no worker.
+    """
 
     try:
         series = await load_version_series(
@@ -362,9 +432,12 @@ async def start_optimization_study(
             input_columns=payload.input_columns, output_column=payload.output_column
         )
     except VersionDataError as error:
+        await _mark_study_failed(session, study_id=study_id, reason=error.code)
         raise OptimizationDomainError(
             error.code, error.message, status_code=error.status_code, details=error.details
         ) from error
+
+    await _mark_study_running(session, study_id=study_id)
 
     fingerprint = build_fingerprint(
         inputs={column: series.values[column] for column in input_columns},
@@ -372,26 +445,24 @@ async def start_optimization_study(
     )
     warm_start, source = await _retrieve_warm_start(session, series=series, fingerprint=fingerprint)
 
-    outcome = run_study(
-        series,
-        payload,
-        input_columns=input_columns,
-        output_column=output_column,
-        warm_start=warm_start,
-        warm_start_source=source,
-    )
-    await _persist_study(session, series=series, payload=payload, outcome=outcome)
+    try:
+        outcome = run_study(
+            series,
+            payload,
+            input_columns=input_columns,
+            output_column=output_column,
+            warm_start=warm_start,
+            warm_start_source=source,
+            study_id=study_id,
+        )
+    except Exception:
+        # A crash mid-search must not leave the row stuck at "running" forever; the client
+        # polling /status has to be able to tell "still working" from "this one died".
+        await _mark_study_failed(session, study_id=study_id, reason="STUDY_EXECUTION_FAILED")
+        raise
 
-    return OptimizationStartData(
-        study_id=outcome.study_id,
-        task=completed_task(
-            stage="optimize_pipeline",
-            message=(
-                f"闭环寻优完成：{outcome.statistics['completed_trials']} 个有效试验，"
-                f"缓存命中率 {outcome.statistics['hit_rate']:.0%}。"
-            ),
-        ),
-    )
+    await _persist_study(session, series=series, payload=payload, outcome=outcome)
+    return dict(outcome.statistics)
 
 
 async def get_optimization_status(
@@ -583,6 +654,54 @@ async def _retrieve_warm_start(
     return [dict(entry.best_params) for _, entry in chosen], chosen[0][1].study_id
 
 
+async def _reserve_study(
+    session: AsyncSession,
+    *,
+    study_id: UUID,
+    payload: OptimizationStartRequest,
+) -> None:
+    """Write the study row before any long work starts.
+
+    Without this the caller gets a study id that ``/status`` answers 404 for until the
+    search finishes — which, once the search runs in a worker, is the entire useful window.
+    """
+
+    session.add(
+        OptimizationStudy(
+            id=study_id,
+            dataset_id=None,
+            version_id=payload.version_id,
+            status="queued",
+            objective="val_free_run_fit",
+            parameters=payload.model_dump(mode="json"),
+            best_params={},
+            fingerprint={},
+            statistics={"target_trials": payload.max_trials},
+            created_at=datetime.now(UTC),
+        )
+    )
+    await session.commit()
+
+
+async def _mark_study_running(session: AsyncSession, *, study_id: UUID) -> None:
+    study = await session.get(OptimizationStudy, study_id)
+    if study is not None:
+        study.status = "running"
+        await session.commit()
+
+
+async def _mark_study_failed(session: AsyncSession, *, study_id: UUID, reason: str) -> None:
+    """Never leave a row at ``running`` after a crash; polling clients cannot tell the
+    difference between "still working" and "died an hour ago"."""
+
+    study = await session.get(OptimizationStudy, study_id)
+    if study is not None:
+        study.status = "failed"
+        study.statistics = {**dict(study.statistics), "error_code": reason}
+        study.finished_at = datetime.now(UTC)
+        await session.commit()
+
+
 async def _persist_study(
     session: AsyncSession,
     *,
@@ -591,23 +710,36 @@ async def _persist_study(
     outcome: StudyOutcome,
 ) -> None:
     now = datetime.now(UTC)
-    session.add(
-        OptimizationStudy(
-            id=outcome.study_id,
-            dataset_id=series.dataset_id,
-            version_id=series.version_id,
-            status="succeeded" if outcome.best_number is not None else "failed",
-            objective="val_free_run_fit",
-            parameters=payload.model_dump(mode="json"),
-            best_trial_number=outcome.best_number,
-            best_value=outcome.best_value,
-            best_params=outcome.best_params,
-            fingerprint=outcome.fingerprint.to_payload(),
-            statistics=outcome.statistics,
-            warm_started_from=outcome.warm_started_from,
-            created_at=now,
-            finished_at=now,
-        )
+    # The row already exists when the API or the worker reserved it. Updating in place is
+    # what makes a job retry idempotent: re-running the same study id cannot produce two
+    # study records for one request.
+    study = await session.get(OptimizationStudy, outcome.study_id)
+    if study is None:
+        study = OptimizationStudy(id=outcome.study_id, created_at=now)
+        session.add(study)
+    study.dataset_id = series.dataset_id
+    study.version_id = series.version_id
+    study.status = "succeeded" if outcome.best_number is not None else "failed"
+    study.objective = "val_free_run_fit"
+    study.parameters = payload.model_dump(mode="json")
+    study.best_trial_number = outcome.best_number
+    study.best_value = outcome.best_value
+    study.best_params = outcome.best_params
+    study.fingerprint = outcome.fingerprint.to_payload()
+    # Keep what was asked for alongside what happened: a study that requested 50 trials and
+    # completed 12 is a different story from one that requested 12, and the final statistics
+    # alone cannot tell them apart.
+    study.statistics = {
+        "target_trials": payload.max_trials,
+        **dict(study.statistics),
+        **outcome.statistics,
+    }
+    study.warm_started_from = outcome.warm_started_from
+    study.finished_at = now
+
+    # Trials from an earlier attempt at the same study id would otherwise accumulate.
+    await session.execute(
+        delete(OptimizationTrialRecord).where(OptimizationTrialRecord.study_id == outcome.study_id)
     )
     for trial in outcome.trials:
         session.add(
