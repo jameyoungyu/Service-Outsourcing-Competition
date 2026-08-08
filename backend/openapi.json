@@ -1688,6 +1688,78 @@
           }
         }
       }
+    },
+    "/api/v1/benchmark/run": {
+      "post": {
+        "tags": [
+          "Delivery"
+        ],
+        "summary": "Run the built-in ablation suite and return freshly measured results",
+        "description": "Every number is computed during this request; nothing is cached or hard-coded.",
+        "operationId": "run_benchmark_route_api_v1_benchmark_run_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BenchmarkRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessEnvelope_BenchmarkData_"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "请求参数或领域规则无效。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "目标资源不存在。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "请求体或路径参数未通过 Pydantic 校验。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "未预期的服务端错误。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -2336,6 +2408,181 @@
           "acf_values"
         ],
         "title": "ArxResidualDiagnostics"
+      },
+      "BenchmarkData": {
+        "properties": {
+          "benchmark_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Benchmark Id"
+          },
+          "task": {
+            "$ref": "#/components/schemas/TaskResource"
+          },
+          "scenarios": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Scenarios"
+          },
+          "n_samples": {
+            "type": "integer",
+            "title": "N Samples"
+          },
+          "seed": {
+            "type": "integer",
+            "title": "Seed"
+          },
+          "experiments": {
+            "items": {
+              "$ref": "#/components/schemas/BenchmarkExperiment"
+            },
+            "type": "array",
+            "title": "Experiments"
+          },
+          "duration_ms": {
+            "type": "number",
+            "title": "Duration Ms"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "benchmark_id",
+          "task",
+          "scenarios",
+          "n_samples",
+          "seed",
+          "experiments",
+          "duration_ms"
+        ],
+        "title": "BenchmarkData"
+      },
+      "BenchmarkExperiment": {
+        "properties": {
+          "key": {
+            "type": "string",
+            "title": "Key"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "question": {
+            "type": "string",
+            "title": "Question"
+          },
+          "rows": {
+            "items": {
+              "$ref": "#/components/schemas/BenchmarkRow"
+            },
+            "type": "array",
+            "title": "Rows"
+          },
+          "notes": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Notes"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "key",
+          "title",
+          "question",
+          "rows"
+        ],
+        "title": "BenchmarkExperiment",
+        "description": "One ablation: the question it answers and the numbers that answer it."
+      },
+      "BenchmarkRequest": {
+        "properties": {
+          "scenarios": {
+            "items": {
+              "type": "string",
+              "enum": [
+                "S1",
+                "S2",
+                "S3",
+                "S4",
+                "S5",
+                "S6"
+              ]
+            },
+            "type": "array",
+            "maxItems": 6,
+            "minItems": 1,
+            "title": "Scenarios",
+            "description": "要运行的基准场景；S6 为异构激励压力测试。",
+            "default": [
+              "S3",
+              "S6"
+            ]
+          },
+          "n_samples": {
+            "type": "integer",
+            "maximum": 50000.0,
+            "minimum": 500.0,
+            "title": "N Samples",
+            "default": 4000
+          },
+          "seed": {
+            "type": "integer",
+            "maximum": 2147483647.0,
+            "minimum": 0.0,
+            "title": "Seed",
+            "default": 20260807
+          },
+          "window_size": {
+            "type": "integer",
+            "maximum": 1000.0,
+            "minimum": 10.0,
+            "title": "Window Size",
+            "default": 60
+          },
+          "budget_windows": {
+            "type": "integer",
+            "maximum": 100.0,
+            "minimum": 1.0,
+            "title": "Budget Windows",
+            "default": 12
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "BenchmarkRequest"
+      },
+      "BenchmarkRow": {
+        "properties": {
+          "scenario": {
+            "type": "string",
+            "title": "Scenario"
+          },
+          "strategy": {
+            "type": "string",
+            "title": "Strategy"
+          },
+          "metrics": {
+            "additionalProperties": {
+              "type": "number"
+            },
+            "type": "object",
+            "title": "Metrics"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "scenario",
+          "strategy",
+          "metrics"
+        ],
+        "title": "BenchmarkRow",
+        "description": "One measured cell of an ablation table."
       },
       "Body_upload_dataset_api_v1_datasets_upload_post": {
         "properties": {
@@ -5952,7 +6199,8 @@
               "S2",
               "S3",
               "S4",
-              "S5"
+              "S5",
+              "S6"
             ],
             "title": "Scenario"
           },
@@ -6012,7 +6260,8 @@
               "S2",
               "S3",
               "S4",
-              "S5"
+              "S5",
+              "S6"
             ],
             "title": "Scenario",
             "description": "冻结的基准场景编号。"
@@ -6374,6 +6623,35 @@
           "request_id"
         ],
         "title": "SuccessEnvelope[ArxFitData]"
+      },
+      "SuccessEnvelope_BenchmarkData_": {
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "const": true,
+            "title": "Success",
+            "default": true
+          },
+          "data": {
+            "$ref": "#/components/schemas/BenchmarkData"
+          },
+          "error": {
+            "type": "null",
+            "title": "Error"
+          },
+          "request_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Request Id"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "data",
+          "request_id"
+        ],
+        "title": "SuccessEnvelope[BenchmarkData]"
       },
       "SuccessEnvelope_CancelTaskData_": {
         "properties": {

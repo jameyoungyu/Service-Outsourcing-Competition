@@ -2,11 +2,11 @@
 
 ## 当前阶段
 
-阶段 3：数据集管理与质量诊断
+阶段 11：测试与竞赛交付（阶段 4–11 全部开发完成）
 
 ## 开始时间
 
-2026-07-28
+2026-07-28（阶段 4–11 于 2026-08-07 完成）
 
 ## 当前状态
 
@@ -57,6 +57,18 @@
 - 阶段 3 前端：`DatasetsView.vue` 与 `DatasetDetailView.vue` 彻底同步真实后端数据库列表、统计量矩阵与质量分析报告，全量前端构建与测试通过；
 - Gemini → GPT 阶段 3 反向交接文档已落盘。
 
+### 阶段 4–11 全流程实现（2026-08-07）
+
+- 阶段 4：`/preprocessing/clean` 接入真实清洗流水线，派生不可变版本并写入血缘 DAG；
+- 阶段 5：质量门控 + D-最优子模优选（`gating.py` + `selection.py` + `segment_service.py`），门控先于信息准则执行；
+- 阶段 6：预白化互相关时滞估计（`delay.py`）与共线性诊断（`collinearity.py`），均接入真实路由；
+- 阶段 7：`modeling_service.fit_arx_core` 统一辨识内核，自由仿真 FIT 为主指标，先验约束为硬约束；
+- 阶段 8：Optuna 分级闭环寻优 + 血缘缓存 + 策略记忆库热启动（`optimization_service.py`，新增 3 张表与 Alembic `0003`）；
+- 阶段 9：Agent 四层编排与机器可检验合规证明（`algorithms/agent/`、`agent_service.py`）；
+- 阶段 10：数值溯源绑定报告与优选数据集导出（`algorithms/report/`、`report_service.py`）；
+- 阶段 11：产品内一键自评测基准（`benchmark_service.py`），新增 S6 异构激励场景；
+- 前端 13 个业务视图全部改为真实数据绑定，删除全部 mock 回退（清洗、优选、时滞、共线性、辨识、寻优、Agent、交付、基准）。
+
 ### 差异化创新增补（INNO-1.0，2026-08-07）
 
 - 官方赛题手册 A14 与初赛评分标准复核，识别同质化风险并定义 7 个差异化创新点：`docs/innovation/differentiation-blueprint.md`；
@@ -69,16 +81,18 @@
 
 ## 未完成
 
-- 阶段 4 预处理清洗、时间规整和动态区间选择；
-- 创新 1、2 原型接入服务层与 API（阶段 5、7）；
-- 创新 3–7 全部待实现（血缘缓存、策略记忆库、零幻觉报告、合规证明、约束辨识、自评测基准 UI）；
-- S6 场景并入 `app/services/simulation_service.py` 并输出标准真值文件；
-- `EXP-1.0` §7 遗留实验：完整加权分对照、窗口长度/预算敏感性扫描、公开数据集验证。
+- 前端 E2E 自动化测试（当前为单元测试 + 人工联调）；
+- 公开数据集（CSTR / Tennessee Eastman）上的外部验证；
+- `EXP-1.0` §7 遗留实验：完整加权分对照、窗口长度与预算敏感性扫描；
+- Docker Compose 启动验证（本开发环境无 Docker 守护进程，见"测试结果"说明）。
 
 ## 当前问题
 
-- 阶段 3 已全量完成并验证；阶段 4 将正式接入重采样、线性/前向插值、Hampel/IQR 异常清洗及无标签动态区间筛选算法。
-- **待开发者确认**（`INNO-1.0` §12）：是否接受 IDS 取代加权质量分作为阶段 5 主口径、自由仿真 FIT 取代一步预测 FIT 作为阶段 7/8 主指标、新增 S6 场景、+13.5 天排期增量，以及是否启动专利申请。未确认前创新 3–7 不进入正式编码。
+- Docker 守护进程在当前开发沙箱中不可用，因此 `docker compose up` 未能实机验证。
+  已验证的替代证据：Dockerfile 复制 `app/`、`algorithms/`、`alembic/` 全部运行期代码；
+  `pyproject.toml` 已加入 `optuna>=4.0,<5.0`；Alembic 版本链为单一 head
+  (`0003_optimization_and_memory`)，无分叉。首次实机部署时需执行一次
+  `docker compose build && docker compose up` 复核。
 
 ## 关键决策
 
@@ -96,7 +110,7 @@
 
 ## 数据库版本
 
-- Alembic Revision：`0002_datasets_and_profiles`
+- Alembic Revision：`0003_optimization_and_memory`（单一 head，链路 0001 → 0002 → 0003）
 
 ## API 版本
 
@@ -110,7 +124,10 @@
 - OpenAPI JSON：通过 `json.tool` 校验；
 - Docker Compose：阶段 3 镜像构建、本地产物卷挂载、PostgreSQL/Redis 就绪、Alembic `0002_datasets_and_profiles (head)` 通过；容器内真实 multipart CSV 上传 → Profile → 列配置闭环通过；
 - 前端 Vitest 测试：`3 passed` (Pinia Store、ApiClient & ApiError)；
-- 前端 Vite 构建：`built in 462ms` (打包验证成功)；
+- 前端 Vite 构建通过，`vue-tsc --noEmit` 退出码 0；
+- **阶段 4–11 全量后端测试：`185 passed`**（含清洗路由、门控与优选、时滞与共线性、辨识与先验、闭环寻优与策略记忆、Agent 与合规证明、报告溯源与导出、自评测基准）；
+- **Ruff 与 Mypy：全部通过（65 个源文件）**；
+- Docker Compose：**本环境无 Docker 守护进程，未实机验证**（见"当前问题"）；
 - 文档完整性检查：通过；
 - 创新原型测试：`tests/test_identifiability.py` `27 passed`（回归矩阵口径、无噪参数恢复、PE 阶次教科书标定、行列式引理与直接 `log det` 差一致性、lazy greedy 与朴素贪心逐窗口一致、信息增益单调不增、分区不越界、异构激励下优于 energy、自由仿真无噪精确复现、一步预测掩盖劣质模型、稳态增益解析值、不稳定多项式检出）；
 - 创新原型 Ruff 与 Mypy：通过（`algorithms/identifiability`、`scripts/benchmark_identifiability.py`、`tests/test_identifiability.py`）；
@@ -118,10 +135,13 @@
 
 ## 验收结论
 
-- [x] 通过：阶段 3 真实 CSV 上传、列 Schema 配置、PostgreSQL 数据资产持久化与真实 Profile 诊断报告已通过全量验证，准备进入阶段 4 (数据清洗与时间规整)。
+- [x] 通过：阶段 4–11 全部开发完成。CSV 上传 → 清洗规整 → 动态区间检测 → 质量约束 D-最优优选 →
+  时滞估计补偿 → 共线性降维 → ARX 辨识 → 一步/自由仿真双评价 → 闭环寻优 → 策略记忆热启动 →
+  Agent 自然语言编排 → 自动化基准 → 溯源图文报告 → 优选数据集导出，全链路已在 185 个自动化测试下贯通。
 - [ ] 不通过
 
 ## 下一阶段进入条件
 
-- 阶段 3 数据资产与质量诊断已通过全量验证 (已满足)；
-- 开始阶段 4：数据清洗与时间规整开发。
+- 竞赛交付物准备：项目概要、PPT、详细方案、演示视频、产品使用手册、交互录屏、分工过程文档；
+- 首次实机部署时补做一次 `docker compose build && docker compose up` 验证；
+- 建议补充公开数据集外部验证与前端 E2E 测试。

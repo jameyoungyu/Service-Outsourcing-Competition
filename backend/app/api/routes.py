@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import get_settings
 from app.core.db import database_is_ready, get_session, redis_is_ready
 from app.core.errors import AppError
+from app.schemas.benchmark import BenchmarkData, BenchmarkRequest
 from app.schemas.common import ErrorEnvelope, SuccessEnvelope
 from app.schemas.copilot import (
     CopilotChatData,
@@ -53,6 +54,7 @@ from app.schemas.simulation import SimulationGenerateData, SimulationGenerateReq
 from app.schemas.system import LivenessData, ReadinessData, SystemInfoData
 from app.schemas.tasks import CancelTaskData
 from app.services.agent_service import AgentDomainError, run_copilot
+from app.services.benchmark_service import BenchmarkDomainError, run_benchmark
 from app.services.cleaning_service import CleaningDomainError, clean_dataset_version
 from app.services.contract_stubs import completed_task, queued_task
 from app.services.dataset_service import (
@@ -685,6 +687,36 @@ async def export_dataset_route(
             artifact_root=get_settings().artifact_root,
         )
     except ReportDomainError as error:
+        raise AppError(
+            error.code,
+            error.message,
+            status_code=error.status_code,
+            details=error.details,
+        ) from error
+    return success(request, data)
+
+
+@router.post(
+    "/benchmark/run",
+    tags=["Delivery"],
+    summary="Run the built-in ablation suite and return freshly measured results",
+    response_model=SuccessEnvelope[BenchmarkData],
+    responses=ERROR_RESPONSES,
+)
+async def run_benchmark_route(
+    request: Request,
+    payload: BenchmarkRequest,
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> SuccessEnvelope[BenchmarkData]:
+    """Every number is computed during this request; nothing is cached or hard-coded."""
+
+    try:
+        data = await run_benchmark(
+            session,
+            payload=payload,
+            artifact_root=get_settings().artifact_root,
+        )
+    except BenchmarkDomainError as error:
         raise AppError(
             error.code,
             error.message,

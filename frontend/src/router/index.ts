@@ -74,6 +74,12 @@ const routes: RouteRecordRaw[] = [
         meta: { title: "Agent 工作台" },
       },
       {
+        path: "benchmark",
+        name: "Benchmark",
+        component: () => import("../views/BenchmarkView.vue"),
+        meta: { title: "一键自评测基准" },
+      },
+      {
         path: "deliverables",
         name: "Deliverables",
         component: () => import("../views/DeliverablesView.vue"),

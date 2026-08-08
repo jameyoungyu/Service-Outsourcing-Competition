@@ -5,7 +5,11 @@ from pydantic import Field
 
 from app.schemas.common import Schema
 
-SimulationScenario = Literal["S1", "S2", "S3", "S4", "S5"]
+# S6 is the heterogeneous-excitation stress case: large, repeated moves concentrated on one
+# input while the others move rarely and by less. It exists because S1-S5 all excite every
+# input simultaneously and therefore cannot expose selection strategies that pile budget
+# onto the loudest variable.
+SimulationScenario = Literal["S1", "S2", "S3", "S4", "S5", "S6"]
 
 
 class SimulationGenerateRequest(Schema):
