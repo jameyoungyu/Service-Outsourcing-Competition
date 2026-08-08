@@ -86,7 +86,7 @@
 
 - 前端 E2E 自动化测试（当前为单元测试 + 人工联调）；
 - 公开数据集（CSTR / Tennessee Eastman）上的外部验证；
-- `EXP-1.0` §7 遗留实验：完整加权分对照、窗口长度与预算敏感性扫描；
+- `EXP-1.1` §7 遗留实验：窗口长度与预算敏感性扫描（完整加权分对照已于 2026-08-08 补测完成）；
 - Docker Compose 启动验证（本开发环境无 Docker 守护进程，见"测试结果"说明）。
 
 ## 当前问题
@@ -128,20 +128,22 @@
 - Docker Compose：阶段 3 镜像构建、本地产物卷挂载、PostgreSQL/Redis 就绪、Alembic `0002_datasets_and_profiles (head)` 通过；容器内真实 multipart CSV 上传 → Profile → 列配置闭环通过；
 - 前端 Vitest 测试：`3 passed` (Pinia Store、ApiClient & ApiError)；
 - 前端 Vite 构建通过，`vue-tsc --noEmit` 退出码 0；
-- **阶段 4–11 全量后端测试：`208 passed`**（含清洗路由、门控与优选、时滞与共线性、辨识与先验、闭环寻优与策略记忆、Agent 与合规证明、报告溯源与导出、自评测基准）；
-- **Ruff 与 Mypy：全部通过（67 个源文件）**；
+- **阶段 4–11 全量后端测试：`218 passed`**（含清洗路由、门控与优选、时滞与共线性、辨识与先验、闭环寻优与策略记忆、Agent 与合规证明、报告溯源与导出、自评测基准、加权分对照基线）；
+- **Ruff 与 Mypy：全部通过（68 个源文件）**；
 - Docker Compose：**本环境无 Docker 守护进程，未实机验证**（见"当前问题"）；
 - 文档完整性检查：通过；
 - 创新原型测试：`tests/test_identifiability.py` `27 passed`（回归矩阵口径、无噪参数恢复、PE 阶次教科书标定、行列式引理与直接 `log det` 差一致性、lazy greedy 与朴素贪心逐窗口一致、信息增益单调不增、分区不越界、异构激励下优于 energy、自由仿真无噪精确复现、一步预测掩盖劣质模型、稳态增益解析值、不稳定多项式检出）；
 - 创新原型 Ruff 与 Mypy：通过（`algorithms/identifiability`、`scripts/benchmark_identifiability.py`、`tests/test_identifiability.py`）；
-- 消融实验：10 组随机种子 × 2 场景（S3/S6）× 3 策略，结果见 `docs/experiments/identifiability-ablation.json`。
+- 消融实验：10 组随机种子 × 2 场景（S3/S6）× **4 策略**（full / energy / weighted / ids），结果见 `docs/experiments/identifiability-ablation.json`；
+- `weighted` 为 `ALG-0.1` §6.2 完整加权质量分的原样实现，补测结论**推翻了 `EXP-1.0` 的预判**：它并不优于纯能量法，两者在 S6 上失效方式完全相同（见 `EXP-1.1` §3 结论 2b）；
+- 同时补入一条对主口径不利的实测：S3 同构激励下 `weighted` 参数误差 3.75% 优于 D-最优的 4.80%（`EXP-2.1` §2 结论 3），已写入 README 首页结论表。
 
 ## 验收结论
 
 - [x] 通过：阶段 4–11 全部开发完成。CSV 上传 → 清洗规整 → 动态区间检测 → 质量约束 D-最优优选 →
   时滞估计补偿 → 共线性降维 → ARX 辨识 → 一步/自由仿真双评价 → 闭环寻优 → 策略记忆热启动 →
   Agent 自然语言编排（大模型驱动，离线可回退）→ 自动化基准 → 溯源图文报告 → 优选数据集导出，
-  全链路已在 208 个自动化测试下贯通。
+  全链路已在 218 个自动化测试下贯通。
 - [ ] 不通过
 
 ## 下一阶段进入条件

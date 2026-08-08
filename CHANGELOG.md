@@ -79,6 +79,31 @@
 - 数字校验的列表标记豁免要求尾随空格，导致中文枚举「3、第三条」被误判为未绑定数据；
 - `algorithms/cleaning/pipeline.py` 中循环变量在两种元素类型间复用引发的类型错误。
 
+### Added (2026-08-08)
+
+- `algorithms/identifiability/weighted_score.py`：`ALG-0.1` §6.2 完整加权质量分按原始权重实现，
+  作为数据优选的第三条对照基线（此前只对照"纯输入变化能量"，属于稻草人对照）；
+  权重由测试锁定，任何为让对照难看而调权的改动都会让测试失败；
+- 自评测基准新增 `weighted` 策略与 `rank_deficient` 秩状态列；前端基准表格策略名改为中文全称、
+  秩状态以标签渲染；
+- 实验报告修订为 `EXP-1.1` 与 `EXP-2.1`，补入 10 组种子的 `weighted` 对照数据。
+
+### Changed (2026-08-08)
+
+- **实测推翻了 `EXP-1.0` §7 的预判**：原文写"完整加权分表现应优于 energy，但核心缺陷不变"，
+  实测是连"优于"都没有发生——S6 上参数误差 14.81 ± 0.06% vs energy 的 14.82 ± 0.07%，
+  自由仿真 FIT 同为 77.05 ± 2.65，同样秩亏。原因是干净数据上 `input_energy` / `output_energy` /
+  `snr` 三个分量同时饱和、彼此共线，而异常率与缺失率惩罚项恒为 0；
+- **同时补充了一条对 D-最优不利的实测结果**：S3（同构激励）产品内基准上 `weighted` 参数误差 3.75%
+  优于全量的 3.76% 与 D-最优的 4.80%，即在同构且干净的数据上完整加权分是四种策略中最好的一个。
+  已写入 `EXP-2.1` §2 结论 3 与 README，并标注该幅度小于 10 种子波动（±0.51%）、强度仅到"不劣于"。
+
+### Fixed (2026-08-08)
+
+- 基准接口的条件数在设计矩阵奇异时为 `float("inf")`，而 Pydantic 会将非有限浮点数序列化为
+  JSON `null`——最有力的证据（秩亏）反而在前端显示为空白。改为在 `1e12` 处封顶并单列
+  `rank_deficient` 承载事实本身。
+
 ### Verification
 
 - pytest `6 passed`、Ruff、Mypy、OpenAPI JSON 校验通过；
@@ -86,7 +111,8 @@
 - 阶段 2 pytest `17 passed`，涵盖 S1–S5、随机种子重现、无噪声参数恢复、时间顺序与真实 API 闭环。
 - 阶段 3 pytest `23 passed`，新增 CSV 异常、GBK/分号识别、去重、真实 Profile、列映射、版本与删除路由测试；PostgreSQL Docker 迁移和 multipart 上传闭环通过。
 - 创新原型 pytest `27 passed`（`tests/test_identifiability.py`），Ruff 与 Mypy 通过；消融实验覆盖 10 组随机种子 × 2 场景 × 3 策略。
-- 阶段 4–11：后端 pytest `187 passed`（含 2 项端到端用例验收测试），Ruff 与 Mypy 全部通过（67 个源文件）；
+- 阶段 4–11：后端 pytest `218 passed`（含 2 项端到端用例验收、21 项大模型集成测试与 10 项
+  加权分对照基线测试），Ruff 与 Mypy 全部通过（68 个源文件）；
   前端 Vite 构建通过、`vue-tsc --noEmit` 退出码 0、Vitest `3 passed`；
   Alembic 单一 head `0003_optimization_and_memory`；
   Docker Compose 因本开发环境无 Docker 守护进程未实机验证（见 PHASE_STATUS）。

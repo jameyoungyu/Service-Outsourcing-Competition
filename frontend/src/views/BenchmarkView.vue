@@ -59,14 +59,25 @@
 
           <el-table :data="experiment.rows" stripe style="width: 100%">
             <el-table-column prop="scenario" label="场景" width="90" />
-            <el-table-column prop="strategy" label="策略 / 通道" width="150" />
+            <el-table-column label="策略 / 通道" width="200">
+              <template #default="{ row }">
+                {{ strategyLabel(row.strategy) }}
+              </template>
+            </el-table-column>
             <el-table-column
               v-for="metric in metricsOf(experiment)"
               :key="metric"
               :label="metricLabel(metric)"
             >
               <template #default="{ row }">
-                <span :class="{ 'fit-val': isHeadline(metric) }">
+                <el-tag
+                  v-if="metric === 'rank_deficient'"
+                  size="small"
+                  :type="row.metrics[metric] ? 'danger' : 'success'"
+                >
+                  {{ row.metrics[metric] ? "秩亏" : "满秩" }}
+                </el-tag>
+                <span v-else :class="{ 'fit-val': isHeadline(metric) }">
                   {{ fmt(row.metrics[metric]) }}
                 </span>
               </template>
@@ -106,6 +117,7 @@ const METRIC_LABELS: Record<string, string> = {
   parameter_error: "参数误差",
   free_run_fit: "自由仿真 FIT",
   condition_number: "条件数",
+  rank_deficient: "秩状态",
   one_step_fit: "一步预测 FIT",
   fit_gap: "FIT 差值",
   true_delay: "真实时滞",
@@ -117,6 +129,16 @@ const METRIC_LABELS: Record<string, string> = {
 };
 
 const HEADLINE = new Set(["free_run_fit", "parameter_error", "prewhitened_error"]);
+
+// Spelled out so the table reads as an argument rather than as four opaque slugs.
+const STRATEGY_LABELS: Record<string, string> = {
+  full: "全量数据",
+  energy: "能量启发式",
+  weighted: "完整加权质量分",
+  ids: "质量约束 D-最优",
+  well_fitted: "充分拟合模型",
+  starved: "欠拟合模型",
+};
 
 interface BenchmarkRow {
   scenario: string;
@@ -171,6 +193,10 @@ const metricsOf = (experiment: BenchmarkExperiment) =>
   experiment.rows.length ? Object.keys(experiment.rows[0].metrics) : [];
 
 const metricLabel = (metric: string) => METRIC_LABELS[metric] ?? metric;
+
+// Delay-experiment rows use the input channel name as the strategy, so anything unmapped
+// passes through unchanged rather than being forced into a label it does not have.
+const strategyLabel = (strategy: string) => STRATEGY_LABELS[strategy] ?? strategy;
 
 const isHeadline = (metric: string) => HEADLINE.has(metric);
 

@@ -32,6 +32,11 @@ from algorithms.identifiability.validation import (
     steady_state_gains,
     validate_model,
 )
+from algorithms.identifiability.weighted_score import (
+    WindowScore,
+    score_windows,
+    select_by_weighted_score,
+)
 
 __all__ = [
     "ArxStructure",
@@ -41,6 +46,7 @@ __all__ = [
     "SelectedWindow",
     "SelectionResult",
     "WindowGrid",
+    "WindowScore",
     "build_regressor",
     "build_window_grid",
     "fisher_information",
@@ -48,6 +54,8 @@ __all__ = [
     "log_det_information",
     "persistent_excitation_order",
     "profile_excitation",
+    "score_windows",
+    "select_by_weighted_score",
     "select_informative_windows",
     "steady_state_gains",
     "validate_model",

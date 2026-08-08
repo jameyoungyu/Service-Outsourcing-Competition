@@ -8,6 +8,7 @@ from pathlib import Path
 
 import numpy as np
 import pytest
+from algorithms.identifiability.excitation import marginal_log_det_gain
 from algorithms.identifiability.gating import (
     GatingThresholds,
     estimate_noise_sigma,
@@ -16,6 +17,11 @@ from algorithms.identifiability.gating import (
 )
 from algorithms.identifiability.regressor import ArxStructure, build_regressor
 from algorithms.identifiability.selection import build_window_grid
+from algorithms.identifiability.weighted_score import (
+    WEIGHTS,
+    score_windows,
+    select_by_weighted_score,
+)
 from app.core.config import Settings
 from app.core.db import get_session
 from app.main import create_app
@@ -249,6 +255,114 @@ class TestQualityConstrainedSelection:
         assert outcome.selection.lazy_speedup >= 1.0
         assert outcome.selection.coverage_ratio < 1.0
         assert outcome.gating.accepted_count >= len(outcome.selection.selected)
+
+
+class TestWeightedScoreBaseline:
+    """The ALG-0.1 §6.2 weighted quality score, kept as an honest comparison baseline.
+
+    It exists so the case for D-optimal selection is not made against a straw man. These
+    tests pin down what it *is* — the published formula at the published weights — and the
+    one structural property that separates it from an information criterion, rather than
+    asserting it always loses.
+    """
+
+    def _grid_and_arrays(self) -> tuple:
+        inputs, output, bursts = long_steady_scenario()
+        structure = ArxStructure.create(na=2, nb=2, nk=0, input_columns=tuple(B))
+        regressor = build_regressor(inputs=inputs, output=output, structure=structure)
+        grid = build_window_grid(regressor, window_size=60, stride=30)
+        return inputs, output, regressor, grid, bursts
+
+    def test_weights_match_the_published_specification(self) -> None:
+        """If someone retunes these to make the comparison flattering, this fails."""
+
+        assert WEIGHTS == {
+            "input_energy": 0.25,
+            "output_energy": 0.20,
+            "snr": 0.20,
+            "response_association": 0.20,
+            "duration": 0.15,
+            "anomaly_ratio": -0.25,
+            "missing_ratio": -0.20,
+            "steady_state": -0.20,
+            "short_segment": -0.10,
+        }
+
+    def test_score_is_the_weighted_sum_of_its_reported_components(self) -> None:
+        inputs, output, regressor, grid, _ = self._grid_and_arrays()
+        scored = score_windows(regressor, grid, inputs=inputs, output=output)
+        assert len(scored) == grid.count
+        for item in scored:
+            assert set(item.components) == set(WEIGHTS)
+            expected = sum(WEIGHTS[key] * value for key, value in item.components.items())
+            assert item.score == pytest.approx(expected)
+
+    def test_components_are_normalised_into_the_unit_interval(self) -> None:
+        inputs, output, regressor, grid, _ = self._grid_and_arrays()
+        for item in score_windows(regressor, grid, inputs=inputs, output=output):
+            for name, value in item.components.items():
+                assert 0.0 <= value <= 1.0, f"{name} escaped [0,1]"
+
+    def test_it_prefers_the_excitation_bursts_over_the_steady_holds(self) -> None:
+        """A baseline that could not do this much would not be worth comparing against."""
+
+        inputs, output, regressor, grid, bursts = self._grid_and_arrays()
+        rows = regressor.time_indices
+        positions = select_by_weighted_score(
+            regressor, grid, inputs=inputs, output=output, budget_windows=4
+        )
+        samples = rows[positions]
+        inside = sum(
+            1 for sample in samples if any(start <= sample <= stop for start, stop in bursts)
+        )
+        assert inside / samples.size > 0.6
+
+    def test_it_cannot_see_redundancy_the_way_a_determinant_can(self) -> None:
+        """The structural point, made on a case built to expose it.
+
+        Two windows are duplicated exactly. A per-window score gives copies identical
+        scores, so a top-K rule takes both; the incremental ``log det`` criterion sees the
+        second copy contribute nothing and passes over it.
+        """
+
+        inputs, output, regressor, grid, _ = self._grid_and_arrays()
+        scored = score_windows(regressor, grid, inputs=inputs, output=output)
+        best = max(scored, key=lambda item: item.score)
+
+        block = regressor.features[grid.positions[best.window_index]]
+        gram = block.T @ block
+        ridge = 1e-6 * np.eye(regressor.n_parameters)
+
+        # First copy of the window: the information it adds to an empty design.
+        first = marginal_log_det_gain(np.linalg.cholesky(ridge), gram)
+        # Second copy of the *same* window: identical weighted score, far less new information.
+        second = marginal_log_det_gain(np.linalg.cholesky(ridge + gram), gram)
+
+        assert second < first
+        # The weighted score, by contrast, is blind to which copy this is: it is a pure
+        # function of the window's own samples, and both copies have the same samples.
+        rescored = score_windows(regressor, grid, inputs=inputs, output=output)
+        assert rescored[best.window_index].score == pytest.approx(best.score)
+
+    def test_an_empty_grid_is_a_domain_error_not_a_crash(self) -> None:
+        from algorithms.identifiability.regressor import IdentifiabilityError
+        from algorithms.identifiability.selection import WindowGrid
+
+        inputs, output, regressor, _, _ = self._grid_and_arrays()
+        empty = WindowGrid(positions=(), window_size=60, stride=30, source_indices=())
+        with pytest.raises(IdentifiabilityError) as error:
+            score_windows(regressor, empty, inputs=inputs, output=output)
+        assert error.value.code == "NO_DYNAMIC_SEGMENT_FOUND"
+
+    def test_a_non_positive_budget_is_rejected(self) -> None:
+        from algorithms.identifiability.regressor import IdentifiabilityError
+
+        inputs, output, regressor, grid, _ = self._grid_and_arrays()
+        with pytest.raises(IdentifiabilityError) as error:
+            select_by_weighted_score(
+                regressor, grid, inputs=inputs, output=output, budget_windows=0
+            )
+        assert error.value.code == "PARAMETER_OUT_OF_RANGE"
 
 
 @pytest.fixture

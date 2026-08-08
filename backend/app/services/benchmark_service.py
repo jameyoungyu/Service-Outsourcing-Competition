@@ -35,6 +35,7 @@ from algorithms.identifiability.selection import (
     select_informative_windows,
 )
 from algorithms.identifiability.validation import fit_percentage, free_run_simulate
+from algorithms.identifiability.weighted_score import select_by_weighted_score
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.dataset import ProcessingRun
@@ -49,6 +50,9 @@ from app.services.contract_stubs import completed_task
 from app.services.simulation_service import generate_simulation, load_simulation_by_version
 
 TRAIN_RATIO = 0.7
+# Ceiling for a reported condition number. Anything at or above this is numerically
+# singular for double-precision least squares; the exact value past here is meaningless.
+CONDITION_CEILING = 1e12
 
 
 class BenchmarkDomainError(Exception):
@@ -180,7 +184,15 @@ def _generate(name: str, *, n_samples: int, seed: int, artifact_root: Path) -> S
 def _selection_experiment(
     scenarios: dict[str, Scenario], payload: BenchmarkRequest
 ) -> BenchmarkExperiment:
-    """full vs energy heuristic vs quality-constrained D-optimal, at equal budget."""
+    """full vs energy vs the full weighted quality score vs D-optimal, at equal budget.
+
+    ``weighted`` is the ``ALG-0.1`` §6.2 score at its published weights. It belongs here
+    because comparing a determinant criterion only against raw input energy would be
+    comparing against a straw man: the weighted score is what a careful implementation of
+    the task statement produces. What it cannot do — by construction, since every window is
+    scored in isolation — is notice that a high-scoring window repeats what an
+    already-selected one taught the model.
+    """
 
     rows: list[BenchmarkRow] = []
     for name, scenario in scenarios.items():
@@ -200,11 +212,19 @@ def _selection_experiment(
         )
         full_rows = np.arange(train_rows, dtype=int)
 
-        for strategy in ("full", "energy", "ids"):
+        for strategy in ("full", "energy", "weighted", "ids"):
             if strategy == "full":
                 positions = full_rows
             elif strategy == "energy":
                 positions = select_by_energy(regressor, grid, budget_windows=payload.budget_windows)
+            elif strategy == "weighted":
+                positions = select_by_weighted_score(
+                    regressor,
+                    grid,
+                    inputs=scenario.inputs,
+                    output=scenario.output,
+                    budget_windows=payload.budget_windows,
+                )
             else:
                 positions = select_informative_windows(
                     regressor,
@@ -232,19 +252,27 @@ def _selection_experiment(
                         "parameter_error": parameter_error,
                         "free_run_fit": free_run,
                         "condition_number": _condition(regressor.features[positions]),
+                        "rank_deficient": _rank_deficient(regressor.features[positions]),
                     },
                 )
             )
 
     return BenchmarkExperiment(
         key="selection",
-        title="数据优选消融：全量 vs 能量启发式 vs 质量约束 D-最优",
-        question="等预算下，质量约束 D-最优优选能否达到全量数据的辨识精度，且不像能量法那样失效？",
+        title="数据优选消融：全量 vs 能量启发式 vs 完整加权质量分 vs 质量约束 D-最优",
+        question="等预算下，质量约束 D-最优优选能否达到全量数据的辨识精度，且不像逐窗口打分那样失效？",
         rows=rows,
         notes=[
             "参数误差以仿真真值为基准，与拟合优度无关。",
             "自由仿真 FIT 在未参与优选的验证区间上计算。",
-            "同构激励场景下三者差异很小；差距出现在异构激励（S6）。",
+            "weighted 为 ALG-0.1 §6.2 加权质量分的完整实现（输入能量、输出能量、信噪比、"
+            "响应关联、时长，减去异常率、缺失率、稳态与短段惩罚），按原始权重执行，"
+            "以免与 D-最优对照时树立稻草人。",
+            "energy 与 weighted 的共同结构性缺陷是逐窗口独立打分，无法表达"
+            "「这个窗口与已选窗口信息重复」；D-最优的增量 log det 天然表达这一点。",
+            f"rank_deficient = 1 表示该子集无法辨识全部参数；condition_number 上限为 "
+            f"{CONDITION_CEILING:.0e}（超出该值在双精度下已属奇异，具体数值无意义）。",
+            "同构激励场景下各策略差异很小；差距出现在异构激励（S6）。",
         ],
     )
 
@@ -387,12 +415,31 @@ def _raw_peak(signal: np.ndarray, output: np.ndarray, max_lag: int) -> int:
 
 
 def _condition(features: np.ndarray) -> float:
+    """Condition number of the design, clamped so it survives JSON.
+
+    A singular design is the single most damning result this ablation can produce, and
+    ``float("inf")`` is exactly how it comes out of the SVD. But Pydantic serialises a
+    non-finite float to JSON ``null``, so reporting it verbatim would deliver the strongest
+    evidence to the UI as a blank cell. It is clamped to :data:`CONDITION_CEILING` instead,
+    and ``rank_deficient`` carries the fact itself so nothing depends on reading a
+    suspiciously round number.
+    """
+
     if features.size == 0:
-        return float("inf")
+        return CONDITION_CEILING
     singular = np.linalg.svd(features, compute_uv=False)
     if singular.size == 0 or singular[-1] <= 0:
-        return float("inf")
-    return float(singular[0] / singular[-1])
+        return CONDITION_CEILING
+    return float(min(singular[0] / singular[-1], CONDITION_CEILING))
+
+
+def _rank_deficient(features: np.ndarray) -> float:
+    """1.0 when the design cannot identify every parameter, 0.0 otherwise."""
+
+    if features.size == 0:
+        return 1.0
+    rank = int(np.linalg.matrix_rank(features))
+    return 1.0 if rank < features.shape[1] else 0.0
 
 
 def _discrimination(rows: list[BenchmarkRow]) -> dict[str, dict[str, float]]:

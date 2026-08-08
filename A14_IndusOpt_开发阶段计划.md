@@ -204,7 +204,7 @@ indusopt/
 
 # 4.1 差异化创新增补（INNO-1.0）
 
-本计划原始版本覆盖赛题的**字面要求**。由于赛题任务清单本身就是一份实现说明书，仅按字面实现会与其他队伍高度同质化。差异化创新点定义在 `docs/innovation/differentiation-blueprint.md`（`INNO-1.0`），算法口径变更定义在 `docs/algorithms/algorithm-specification-v2.md`（`ALG-0.2`），实验证据在 `docs/experiments/identifiability-ablation.md`（`EXP-1.0`）。
+本计划原始版本覆盖赛题的**字面要求**。由于赛题任务清单本身就是一份实现说明书，仅按字面实现会与其他队伍高度同质化。差异化创新点定义在 `docs/innovation/differentiation-blueprint.md`（`INNO-1.0`），算法口径变更定义在 `docs/algorithms/algorithm-specification-v2.md`（`ALG-0.2`），实验证据在 `docs/experiments/identifiability-ablation.md`（`EXP-1.1`）与 `docs/experiments/self-benchmark.md`（`EXP-2.1`）。
 
 七个创新点与阶段的对应关系：
 
@@ -931,8 +931,8 @@ J(S) = log det( λI + Σ_{W∈S} Φ_Wᵀ Φ_W )
 - [ ] 信息增益单调不增（子模性的可观测推论）。
 - [ ] lazy greedy 与朴素贪心逐窗口结果一致。
 - [ ] S6 异构激励下 IDS 不出现秩亏，能量对照组的失效可被复现。
-- [ ] 完整加权分（含 SNR 与响应关联分量）的对照实验已补齐（EXP-1.0 §7 遗留项）。
-- [ ] `window_size` 与预算的敏感性扫描已完成（EXP-1.0 §7 遗留项）。
+- [x] 完整加权分（含 SNR 与响应关联分量）的对照实验已补齐（EXP-1.1 §3 结论 2b、§4；实测**证伪**了「加权分应优于纯能量法」的原判断，两者在 S6 上失效方式完全相同）。
+- [ ] `window_size` 与预算的敏感性扫描已完成（EXP-1.1 §7 第 4 条，仍为主要遗留项）。
 
 ## 10.5 Git 标签
 
@@ -1644,9 +1644,9 @@ v1.1.0-report-delivery
 
 | 实验 | 对照组 | 指标 | 状态 |
 |---|---|---|---|
-| 数据优选 | full / energy / **ids** | 参数误差、自由仿真 FIT、稳态增益误差、条件数 | **已完成**，见 `EXP-1.0` |
+| 数据优选 | full / energy / weighted / **ids** | 参数误差、自由仿真 FIT、稳态增益误差、条件数 | **已完成**，见 `EXP-1.1` / `EXP-2.1` |
 | 指标区分度 | 一步预测 FIT vs 自由仿真 FIT | 策略间跨度之比 | **已完成**（27.7×） |
-| 完整加权分对照 | 加权分（含 SNR/响应关联） vs ids | 同上 | 待补（EXP-1.0 §7 遗留） |
+| 完整加权分对照 | 加权分（含 SNR/响应关联） vs ids | 同上 | **已完成**：S6 上加权分与能量法同样秩亏（14.81% vs 14.82%）；S3 上加权分反而最优（3.75% vs ids 4.80%），已据实写入 `EXP-2.1` §2 结论 3 |
 | 时滞估计 | 朴素互相关 vs 预白化互相关 | 各输入 `nk` 命中率 | 待做 |
 | 闭环加速 | 无缓存 vs 血缘缓存 + Hyperband | 缓存命中率、端到端加速比、单 Trial 耗时 | 待做 |
 | 自演进 | 冷启动 vs 记忆库热启动 | 达到同等目标值的 Trial 数（≥5 组数据集） | 待做 |

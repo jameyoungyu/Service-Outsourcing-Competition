@@ -4,9 +4,17 @@ Reproduces the A14 core pain point — informative dynamics buried in steady-sta
 and compares three ways of choosing which samples to identify from, at an equal sample
 budget:
 
-* ``full``    : every training sample, the do-nothing baseline;
-* ``energy``  : top-K windows by input change energy, i.e. the conventional heuristic;
-* ``ids``     : greedy D-optimal selection maximising ``log det`` of the Fisher information.
+* ``full``     : every training sample, the do-nothing baseline;
+* ``energy``   : top-K windows by input change energy, i.e. the crudest heuristic;
+* ``weighted`` : top-K windows by the full ``ALG-0.1`` §6.2 weighted quality score, which is
+  what a careful literal implementation of the task statement produces;
+* ``ids``      : greedy D-optimal selection maximising ``log det`` of the Fisher information.
+
+``weighted`` is included so the comparison is not against a straw man. It is a stronger
+baseline than ``energy`` — it penalises anomalies, missing data and steady holds, and
+rewards signal-to-noise ratio and input/output association — but it shares ``energy``'s
+structural limitation: every window is scored in isolation, so no term in the formula can
+express "this window teaches the model what the last one already did".
 
 The scenario mirrors the ``S3`` generator in ``app.services.simulation_service`` (long
 steady holds with short step / ramp / pulse excitations, second-order ARX with per-input
@@ -45,6 +53,7 @@ from algorithms.identifiability.selection import (  # noqa: E402
     select_informative_windows,
 )
 from algorithms.identifiability.validation import validate_model  # noqa: E402
+from algorithms.identifiability.weighted_score import select_by_weighted_score  # noqa: E402
 
 FloatArray = NDArray[np.float64]
 
@@ -304,6 +313,37 @@ def run_experiment(
                 "condition_number": energy_profile.condition_number,
                 "excitation_satisfied": energy_profile.excitation_satisfied,
                 "coverage_ratio": energy_subset.n_rows / full.n_rows,
+            },
+        )
+    )
+
+    started = time.perf_counter()
+    weighted_rows = select_by_weighted_score(
+        full,
+        grid,
+        inputs=scenario.inputs,
+        output=scenario.output,
+        budget_windows=budget_windows,
+    )
+    weighted_subset = full.take(weighted_rows)
+    theta_weighted = fit_ols(weighted_subset)
+    weighted_seconds = time.perf_counter() - started
+    weighted_profile = profile_excitation(
+        weighted_subset, inputs=_restrict(scenario, weighted_subset), ridge=1e-6
+    )
+    results.append(
+        evaluate(
+            "weighted",
+            theta_weighted,
+            scenario,
+            n_rows=weighted_subset.n_rows,
+            validation_range=validation_range,
+            fit_seconds=weighted_seconds,
+            extra={
+                "log_det": weighted_profile.log_det,
+                "condition_number": weighted_profile.condition_number,
+                "excitation_satisfied": weighted_profile.excitation_satisfied,
+                "coverage_ratio": weighted_subset.n_rows / full.n_rows,
             },
         )
     )
