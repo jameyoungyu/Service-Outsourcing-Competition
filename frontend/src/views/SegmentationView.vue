@@ -111,6 +111,16 @@
             </el-descriptions-item>
           </el-descriptions>
 
+          <el-alert
+            v-if="result.selection.budget_advisory"
+            type="warning"
+            :closable="false"
+            show-icon
+            class="advisory"
+          >
+            <template #title>{{ result.selection.budget_advisory }}</template>
+          </el-alert>
+
           <div v-if="rejectionRows.length" class="rejection-block">
             <span class="rejection-title">门控剔除统计：</span>
             <el-tag
@@ -394,6 +404,10 @@ const formatNumber = (value: number | null | undefined) => {
 
 .alert-gap {
   margin-top: 12px;
+}
+
+.advisory {
+  margin-top: 14px;
 }
 
 .rejection-block {

@@ -6177,6 +6177,18 @@
             "type": "string",
             "title": "Stopped Reason"
           },
+          "budget_advisory": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Budget Advisory",
+            "description": "样本预算过小、信息准则无法覆盖全部参数方向时的提示；为 null 表示预算充足。"
+          },
           "condition_number": {
             "anyOf": [
               {

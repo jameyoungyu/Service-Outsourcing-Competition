@@ -285,6 +285,7 @@ export interface SelectionSummary {
   naive_candidate_evaluations: number;
   lazy_speedup: number;
   stopped_reason: string;
+  budget_advisory: string | null;
   condition_number: number | null;
   excitation_satisfied: boolean;
   persistent_excitation_order: Record<string, number>;

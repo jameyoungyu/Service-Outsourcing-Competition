@@ -129,6 +129,10 @@ class SelectionSummary(Schema):
     naive_candidate_evaluations: int = Field(ge=0)
     lazy_speedup: float
     stopped_reason: str
+    budget_advisory: str | None = Field(
+        default=None,
+        description="样本预算过小、信息准则无法覆盖全部参数方向时的提示；为 null 表示预算充足。",
+    )
     condition_number: float | None = None
     excitation_satisfied: bool = False
     persistent_excitation_order: dict[str, int] = Field(default_factory=dict)

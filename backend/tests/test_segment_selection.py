@@ -16,7 +16,12 @@ from algorithms.identifiability.gating import (
     hampel_anomaly_mask,
 )
 from algorithms.identifiability.regressor import ArxStructure, build_regressor
-from algorithms.identifiability.selection import build_window_grid
+from algorithms.identifiability.selection import (
+    MIN_WINDOWS_FOR_COVERAGE,
+    build_window_grid,
+    select_by_energy,
+    take_top_k,
+)
 from algorithms.identifiability.weighted_score import (
     WEIGHTS,
     score_windows,
@@ -363,6 +368,92 @@ class TestWeightedScoreBaseline:
                 regressor, grid, inputs=inputs, output=output, budget_windows=0
             )
         assert error.value.code == "PARAMETER_OUT_OF_RANGE"
+
+
+class TestRowBudget:
+    """A row budget is what makes "same budget, different method" a true statement.
+
+    At a fixed *window* count a length-30 window and a length-180 window buy very different
+    sample counts, and overlapping windows deduplicate differently on top of that. The
+    sensitivity sweep varies window length, so it needs a budget the strategies actually
+    share.
+    """
+
+    def _grid_and_arrays(self) -> tuple:
+        inputs, output, bursts = long_steady_scenario()
+        structure = ArxStructure.create(na=2, nb=2, nk=0, input_columns=tuple(B))
+        regressor = build_regressor(inputs=inputs, output=output, structure=structure)
+        grid = build_window_grid(regressor, window_size=60, stride=30)
+        return inputs, output, regressor, grid, bursts
+
+    def test_a_row_budget_is_a_ceiling_never_a_target(self) -> None:
+        inputs, output, regressor, grid, _ = self._grid_and_arrays()
+        for budget in (60, 150, 300, 480):
+            energy = select_by_energy(regressor, grid, budget_rows=budget)
+            weighted = select_by_weighted_score(
+                regressor, grid, inputs=inputs, output=output, budget_rows=budget
+            )
+            assert energy.size <= budget
+            assert weighted.size <= budget
+
+    def test_both_top_k_baselines_spend_the_budget_identically(self) -> None:
+        """They must differ only in how they score, never in how they spend."""
+
+        inputs, output, regressor, grid, _ = self._grid_and_arrays()
+        scores = np.arange(grid.count, dtype=float)  # a scoring both would agree on
+        expected = take_top_k(grid, scores, budget_rows=240)
+        assert take_top_k(grid, scores, budget_rows=240).tolist() == expected.tolist()
+        # And the row-budget path never returns duplicates or unsorted positions.
+        assert expected.tolist() == sorted(set(expected.tolist()))
+
+    def test_specifying_both_budgets_or_neither_is_rejected(self) -> None:
+        from algorithms.identifiability.regressor import IdentifiabilityError
+
+        _, _, _, grid, _ = self._grid_and_arrays()
+        scores = np.zeros(grid.count, dtype=float)
+        for kwargs in ({}, {"budget_rows": 200, "budget_windows": 4}):
+            with pytest.raises(IdentifiabilityError) as error:
+                take_top_k(grid, scores, **kwargs)  # type: ignore[arg-type]
+            assert error.value.code == "PARAMETER_OUT_OF_RANGE"
+
+    def test_a_budget_too_small_for_one_window_is_rejected(self) -> None:
+        from algorithms.identifiability.regressor import IdentifiabilityError
+
+        _, _, _, grid, _ = self._grid_and_arrays()
+        scores = np.zeros(grid.count, dtype=float)
+        with pytest.raises(IdentifiabilityError) as error:
+            take_top_k(grid, scores, budget_rows=grid.window_size - 1)
+        assert error.value.code == "PARAMETER_OUT_OF_RANGE"
+
+
+class TestBudgetAdvisory:
+    """EXP-3.0 found a boundary below which the criterion cannot help; say so out loud."""
+
+    def test_a_thin_budget_produces_an_advisory(self) -> None:
+        inputs, output, _ = long_steady_scenario()
+        series = make_series(inputs, output)
+        outcome = run_segment_selection(series, make_request(max_segments=2))
+        assert len(outcome.selection.selected) < MIN_WINDOWS_FOR_COVERAGE
+        advisory = outcome.selection.budget_advisory
+        assert advisory is not None
+        assert "EXP-3.0" in advisory
+
+    def test_a_healthy_budget_stays_silent(self) -> None:
+        inputs, output, _ = long_steady_scenario()
+        series = make_series(inputs, output)
+        outcome = run_segment_selection(series, make_request(max_segments=6))
+        if len(outcome.selection.selected) >= MIN_WINDOWS_FOR_COVERAGE:
+            assert outcome.selection.budget_advisory is None
+
+    def test_the_advisory_never_blocks_the_result(self) -> None:
+        """Two windows may genuinely be all the record holds; refusing would help nobody."""
+
+        inputs, output, _ = long_steady_scenario()
+        series = make_series(inputs, output)
+        outcome = run_segment_selection(series, make_request(max_segments=1))
+        assert outcome.selection.budget_advisory is not None
+        assert outcome.selection.row_positions.size > 0
+        assert outcome.selection.regressor.n_rows > 0
 
 
 @pytest.fixture

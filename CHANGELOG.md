@@ -104,6 +104,26 @@
   JSON `null`——最有力的证据（秩亏）反而在前端显示为空白。改为在 `1e12` 处封顶并单列
   `rank_deficient` 承载事实本身。
 
+### Added (2026-08-08，敏感性扫描)
+
+- `scripts/sweep_selection_sensitivity.py` 与实验报告 `EXP-3.0`：窗口长度 × 样本预算敏感性扫描，
+  200 个测量点（5 窗长 × 4 预算 × 5 种子 × 2 场景），收敛 `EXP-1.1` §7 最后一条遗留威胁；
+- `selection.take_top_k` 与 `budget_rows` 入口：`energy` / `weighted` 两条逐窗口基线改为与
+  D-最优共用同一套预算消耗逻辑。窗长变化时按"窗口数"给预算是不可比的（长度 30 与 180 的窗口
+  买到的样本量差 6 倍），按行数给才使"同等预算、不同方法"成为一句真话；
+- `SelectionResult.budget_advisory` 与 `MIN_WINDOWS_FOR_COVERAGE`：预算过小时接口返回提示，
+  前端优选页以警告条展示。刻意做成提示而非阻断——有时两个窗口就是这段记录的全部。
+
+### Changed (2026-08-08，敏感性扫描)
+
+- **`EXP-1.1` 的结论在 20 个工作点上得到验证，同时暴露了 D-最优自身的失效边界（本轮主要发现）**：
+  S6 上 `ids` 参数误差最优 18/20、满秩 16/20，而 `energy` 满秩 1/20、`weighted` 2/20；
+  但当预算只够装下约 2 个窗口时（预算/窗长 ≤ 2.3），`ids` 同样 5/5 次秩亏。
+  分界干净地落在 2.3 与 3.5 之间，无交叉点。含义是预算不足而非准则失灵——
+  信息准则不能凭空造出数据里没有的激励。该边界已写进产品提示；
+- S3 上 `energy` 参数误差最优次数最多（10/20，`ids` 7/20、`weighted` 3/20），差距在种子波动内，
+  照实记录。20 个工作点全部满秩，无策略崩溃。
+
 ### Verification
 
 - pytest `6 passed`、Ruff、Mypy、OpenAPI JSON 校验通过；
@@ -111,8 +131,8 @@
 - 阶段 2 pytest `17 passed`，涵盖 S1–S5、随机种子重现、无噪声参数恢复、时间顺序与真实 API 闭环。
 - 阶段 3 pytest `23 passed`，新增 CSV 异常、GBK/分号识别、去重、真实 Profile、列映射、版本与删除路由测试；PostgreSQL Docker 迁移和 multipart 上传闭环通过。
 - 创新原型 pytest `27 passed`（`tests/test_identifiability.py`），Ruff 与 Mypy 通过；消融实验覆盖 10 组随机种子 × 2 场景 × 3 策略。
-- 阶段 4–11：后端 pytest `218 passed`（含 2 项端到端用例验收、21 项大模型集成测试与 10 项
-  加权分对照基线测试），Ruff 与 Mypy 全部通过（68 个源文件）；
+- 阶段 4–11：后端 pytest `225 passed`（含 2 项端到端用例验收、21 项大模型集成测试、10 项
+  加权分对照基线测试与 7 项行预算/预算提示测试），Ruff 与 Mypy 全部通过（68 个源文件）；
   前端 Vite 构建通过、`vue-tsc --noEmit` 退出码 0、Vitest `3 passed`；
   Alembic 单一 head `0003_optimization_and_memory`；
   Docker Compose 因本开发环境无 Docker 守护进程未实机验证（见 PHASE_STATUS）。

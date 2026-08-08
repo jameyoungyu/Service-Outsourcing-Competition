@@ -41,6 +41,13 @@ from algorithms.identifiability.regressor import (
     RegressorMatrix,
 )
 
+# Below this many selected windows the design goes rank-deficient on heterogeneous
+# excitation even under the D-optimal criterion: a handful of windows cannot span every
+# parameter direction however cleverly they are picked. Measured in EXP-3.0 — at a 5%
+# budget, window 60 (3 windows) stays full-rank while windows 90/120/180 (2/1/1 windows)
+# are rank-deficient on every one of 5 seeds.
+MIN_WINDOWS_FOR_COVERAGE = 3
+
 
 @dataclass(frozen=True)
 class WindowGrid:
@@ -144,6 +151,30 @@ class SelectionResult:
         return self.naive_candidate_evaluations / self.evaluated_candidates
 
     @property
+    def budget_advisory(self) -> str | None:
+        """Warn when the budget was too small for the criterion to do its job.
+
+        Measured in ``EXP-3.0``: below :data:`MIN_WINDOWS_FOR_COVERAGE` selected windows the
+        D-optimal criterion goes rank-deficient on heterogeneous excitation just like the
+        heuristics do — not because the criterion failed, but because a handful of windows
+        cannot span every parameter direction no matter how they are chosen. The engineer
+        needs to be told that widening the budget or shortening the window is the fix, and
+        that a model fitted from this subset is not trustworthy.
+
+        This is an advisory, not a block. Sometimes two windows is genuinely all the record
+        contains, and refusing to proceed would leave the engineer with nothing. The
+        rank-deficiency flag on the excitation report remains the hard signal.
+        """
+
+        if len(self.selected) >= MIN_WINDOWS_FOR_COVERAGE:
+            return None
+        return (
+            f"仅选出 {len(self.selected)} 个窗口（建议至少 {MIN_WINDOWS_FOR_COVERAGE} 个）。"
+            "实测表明窗口数过少时，信息准则也无法覆盖全部参数方向，设计矩阵仍可能秩亏"
+            "（EXP-3.0）。建议增大样本预算或缩短窗口长度后重跑。"
+        )
+
+    @property
     def information_retention(self) -> float:
         """Fraction of the full-data ``log det`` retained by the selected subset.
 
@@ -169,6 +200,7 @@ class SelectionResult:
             "selected_log_det": self.selected_log_det,
             "information_retention": self.information_retention,
             "stopped_reason": self.stopped_reason,
+            "budget_advisory": self.budget_advisory,
             "excitation": self.excitation.to_payload(),
         }
 
@@ -365,7 +397,8 @@ def select_by_energy(
     regressor: RegressorMatrix,
     grid: WindowGrid,
     *,
-    budget_windows: int,
+    budget_windows: int | None = None,
+    budget_rows: int | None = None,
 ) -> IntArray:
     """Rank windows by input change energy only — the heuristic baseline to beat.
 
@@ -374,18 +407,75 @@ def select_by_energy(
     implementation rather than a straw man.
     """
 
-    if budget_windows < 1:
-        raise IdentifiabilityError(
-            "PARAMETER_OUT_OF_RANGE",
-            "budget_windows 必须大于等于 1",
-            {"budget_windows": budget_windows},
-        )
     scores = np.asarray(
         [_input_energy(regressor, positions) for positions in grid.positions],
         dtype=float,
     )
-    order = np.argsort(-scores)[: min(budget_windows, grid.count)]
-    return np.unique(np.concatenate([grid.positions[int(index)] for index in order]))
+    return take_top_k(
+        grid,
+        scores,
+        budget_windows=budget_windows,
+        budget_rows=budget_rows,
+    )
+
+
+def take_top_k(
+    grid: WindowGrid,
+    scores: FloatArray,
+    *,
+    budget_windows: int | None = None,
+    budget_rows: int | None = None,
+) -> IntArray:
+    """Collect the highest-scoring windows as deduplicated row positions.
+
+    Shared by every per-window scoring baseline so they differ only in how they score,
+    never in how they spend the budget.
+
+    ``budget_rows`` exists because comparing strategies at a fixed *window* count is not a
+    fair comparison once window length varies: overlapping windows deduplicate differently,
+    so the same window count buys different sample counts. Windows are taken in score order
+    until the next one would push the deduplicated row count over the budget — never past
+    it, so a row budget is a ceiling rather than a target.
+    """
+
+    if (budget_rows is None) == (budget_windows is None):
+        raise IdentifiabilityError(
+            "PARAMETER_OUT_OF_RANGE",
+            "必须且只能指定 budget_rows 或 budget_windows 之一",
+            {"budget_rows": budget_rows, "budget_windows": budget_windows},
+        )
+    if grid.count == 0:
+        raise IdentifiabilityError(
+            "NO_DYNAMIC_SEGMENT_FOUND",
+            "候选窗口为空，无法执行 Top-K 优选",
+        )
+
+    order = [int(index) for index in np.argsort(-np.asarray(scores, dtype=float))]
+
+    if budget_windows is not None:
+        if budget_windows < 1:
+            raise IdentifiabilityError(
+                "PARAMETER_OUT_OF_RANGE",
+                "budget_windows 必须大于等于 1",
+                {"budget_windows": budget_windows},
+            )
+        chosen = order[: min(budget_windows, grid.count)]
+        return np.unique(np.concatenate([grid.positions[index] for index in chosen]))
+
+    assert budget_rows is not None
+    if budget_rows < grid.window_size:
+        raise IdentifiabilityError(
+            "PARAMETER_OUT_OF_RANGE",
+            "budget_rows 必须至少容纳一个候选窗口",
+            {"budget_rows": budget_rows, "window_size": grid.window_size},
+        )
+    accumulated: set[int] = set()
+    for index in order:
+        candidate = accumulated | {int(row) for row in grid.positions[index]}
+        if len(candidate) > budget_rows:
+            continue
+        accumulated = candidate
+    return np.array(sorted(accumulated), dtype=int)
 
 
 def _resolve_budget(

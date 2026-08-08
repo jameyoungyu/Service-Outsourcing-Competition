@@ -36,7 +36,7 @@ import numpy as np
 
 from algorithms.identifiability.gating import estimate_noise_sigma, hampel_anomaly_mask
 from algorithms.identifiability.regressor import FloatArray, IdentifiabilityError, RegressorMatrix
-from algorithms.identifiability.selection import WindowGrid
+from algorithms.identifiability.selection import WindowGrid, take_top_k
 
 # Weights frozen in ALG-0.1 §6.2. Reproduced verbatim so the comparison is against the
 # specification as written, not against a version tuned to lose.
@@ -143,18 +143,18 @@ def select_by_weighted_score(
     *,
     inputs: Mapping[str, FloatArray],
     output: FloatArray,
-    budget_windows: int,
+    budget_windows: int | None = None,
+    budget_rows: int | None = None,
 ) -> np.ndarray:
-    """Take the top-scoring windows. Row positions, deduplicated, like the other selectors."""
+    """Take the top-scoring windows. Row positions, deduplicated, like the other selectors.
 
-    if budget_windows < 1:
-        raise IdentifiabilityError(
-            "PARAMETER_OUT_OF_RANGE", "budget_windows 必须大于等于 1", {"budget": budget_windows}
-        )
+    Budget handling is delegated to :func:`take_top_k` so this baseline and ``energy``
+    differ only in how they score windows, never in how they spend the budget.
+    """
+
     scored = score_windows(regressor, grid, inputs=inputs, output=output)
-    ranked = sorted(scored, key=lambda item: item.score, reverse=True)
-    chosen = ranked[: min(budget_windows, grid.count)]
-    return np.unique(np.concatenate([grid.positions[item.window_index] for item in chosen]))
+    scores = np.array([item.score for item in scored], dtype=float)
+    return take_top_k(grid, scores, budget_windows=budget_windows, budget_rows=budget_rows)
 
 
 def _normalise(values: list[float]) -> list[float]:

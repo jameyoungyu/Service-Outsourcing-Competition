@@ -278,6 +278,7 @@ def _selection_summary(outcome: SegmentSelectionOutcome) -> SelectionSummary:
         naive_candidate_evaluations=selection.naive_candidate_evaluations,
         lazy_speedup=selection.lazy_speedup,
         stopped_reason=selection.stopped_reason,
+        budget_advisory=selection.budget_advisory,
         condition_number=(
             None if not np.isfinite(excitation.condition_number) else excitation.condition_number
         ),

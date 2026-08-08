@@ -9,7 +9,7 @@ ARX 辨识与闭环寻优，交付可复现的数据版本、模型、指标与*
 
 ## 交付状态
 
-阶段 0–11 全部开发完成。完整闭环已在 218 个后端自动化测试下贯通（其中 2 项为端到端用例验收）：
+阶段 0–11 全部开发完成。完整闭环已在 225 个后端自动化测试下贯通（其中 2 项为端到端用例验收）：
 
 ```text
 工业 CSV 上传
@@ -65,7 +65,8 @@ export INDUSOPT_LLM_MODEL=qwen2.5:7b
 - [`docs/innovation/differentiation-blueprint.md`](docs/innovation/differentiation-blueprint.md)：7 个创新点、评分标准映射、排期增量与降级顺序；
 - [`docs/algorithms/algorithm-specification-v2.md`](docs/algorithms/algorithm-specification-v2.md)：相对 `ALG-0.1` 的算法口径增量；
 - [`docs/experiments/identifiability-ablation.md`](docs/experiments/identifiability-ablation.md)：10 组种子的离线消融实验证据；
-- [`docs/experiments/self-benchmark.md`](docs/experiments/self-benchmark.md)：产品内一键自评测基准的实测结果。
+- [`docs/experiments/self-benchmark.md`](docs/experiments/self-benchmark.md)：产品内一键自评测基准的实测结果；
+- [`docs/experiments/sensitivity-sweep.md`](docs/experiments/sensitivity-sweep.md)：窗口长度 × 样本预算 200 个工作点的敏感性扫描，含 D-最优自身的失效边界。
 
 核心结论（全部为实测，含不利结果）：
 
@@ -79,14 +80,17 @@ export INDUSOPT_LLM_MODEL=qwen2.5:7b
 | 预白化互相关在 6 个通道中 **4 胜 1 负 1 平**——占优但非全胜 | `EXP-2.1` |
 | 同构激励（S3）下 D-最优**排在末位**（4.80%，落后加权分的 3.75%、全量的 3.76%、能量法的 4.12%）——价值在于"永不崩溃"而非"永远最优" | `EXP-2.1` S3 |
 | 原先"完整加权分应优于纯能量法"的预判**被实测证伪**（14.81% vs 14.82%，无差异）；报告按实测改写而非按预期保留 | `EXP-1.1` |
+| 结论不是单点巧合：**200 个工作点**（5 窗长 × 4 预算 × 5 种子 × 2 场景）上 D-最优在 S6 参数误差最优 **18/20**、满秩 **16/20**，而两种打分法满秩仅 1/20 与 2/20 | `EXP-3.0` |
+| **D-最优自身也有失效边界**：预算只够装下约 2 个窗口时（预算/窗长 ≤ 2.3）它同样秩亏。产品已就此给出提示而非默默出模型 | `EXP-3.0` |
 | 内容寻址血缘缓存在扁平采样下命中率仅 **1.7%**，真正的节省来自分级搜索 | 阶段 8 实测 |
 
 复现（产品内点击「一键自评测基准」，或命令行）：
 
 ```bash
 cd backend
-python -m pytest -q                                   # 218 passed
+python -m pytest -q                                   # 225 passed
 python scripts/benchmark_identifiability.py --repeats 10
+python scripts/sweep_selection_sensitivity.py --repeats 5
 curl -X POST http://localhost:18000/api/v1/benchmark/run \
   -H 'Content-Type: application/json' \
   -d '{"scenarios":["S3","S6"],"n_samples":4000}'
