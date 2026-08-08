@@ -205,6 +205,10 @@ PostgreSQL + Alembic 仍是唯一受支持的部署路径——E2E 跳过迁移�
 | [算法口径规范 ALG-0.2](docs/algorithms/algorithm-specification-v2.md) | 相对 `ALG-0.1` 的算法增量 |
 | [EXP-1.1 / EXP-2.1 / EXP-3.0](docs/experiments/) | 全部实验证据与原始数据，含不利结果 |
 | [知识产权材料](docs/ip/README.md) | 软著登记材料与专利技术交底书 |
+| [项目概要](docs/competition/项目概要.md) | 竞赛提交用的作品概要 |
+| [详细技术方案](docs/competition/详细方案.md) | 需求理解、架构、核心算法、实验证据、局限 |
+| [答辩 PPT](docs/competition/IndusOpt-A14-答辩.pptx) | 11 页，生成脚本在 `docs/competition/slides/` |
+| [分工与过程文档](docs/competition/分工与过程文档.md) | 开发过程记录与关键决策依据（分工表需团队填写） |
 
 算法实现与基线结果见 [`docs/algorithms/phase-2-simulation-arx-baseline.md`](docs/algorithms/phase-2-simulation-arx-baseline.md)
 与 [`docs/algorithms/algorithm-specification-v2.md`](docs/algorithms/algorithm-specification-v2.md)；
