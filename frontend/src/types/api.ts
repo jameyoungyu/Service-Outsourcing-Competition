@@ -607,3 +607,62 @@ export interface CopilotConfirmRequest {
   parameter_overrides?: Record<string, any>;
   comment?: string | null;
 }
+
+// Delivery API Types (Phase 10)
+export interface ReportRequest {
+  dataset_id?: string | null;
+  version_id?: string | null;
+  study_id?: string | null;
+  title?: string;
+}
+
+export interface ReportSection {
+  key: string;
+  title: string;
+  body: string;
+}
+
+/** One number in the report, and the run record it was read from. */
+export interface ReportBinding {
+  placeholder: string;
+  kind: string;
+  run_id: string;
+  path: string;
+  value: string;
+  resolved: boolean;
+}
+
+export interface ReportResponse {
+  report_id: string;
+  dataset_id: string | null;
+  task: TaskResource;
+  title: string;
+  markdown: string;
+  sections: ReportSection[];
+  bindings: ReportBinding[];
+  unresolved: string[];
+  fully_resolved: boolean;
+  artifact_uri: string | null;
+  cited_runs: string[];
+}
+
+export interface ExportDatasetRequest {
+  version_id: string;
+  dataset_id?: string | null;
+  input_columns?: string[];
+  output_column?: string | null;
+  sample_indices?: number[];
+}
+
+export interface ExportDatasetResponse {
+  export_id: string;
+  dataset_id: string | null;
+  version_id: string;
+  task: TaskResource;
+  csv_uri: string;
+  manifest_uri: string;
+  exported_rows: number;
+  source_rows: number;
+  coverage_ratio: number;
+  columns: string[];
+}

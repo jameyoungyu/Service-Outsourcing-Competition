@@ -1545,6 +1545,149 @@
           }
         }
       }
+    },
+    "/api/v1/reports/generate": {
+      "post": {
+        "tags": [
+          "Delivery"
+        ],
+        "summary": "Generate a provenance-bound report where every number cites its run",
+        "description": "Compose from persisted runs; a draft with a bare numeral is rejected, not rendered.",
+        "operationId": "generate_report_route_api_v1_reports_generate_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReportRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessEnvelope_ReportData_"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "请求参数或领域规则无效。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "目标资源不存在。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "请求体或路径参数未通过 Pydantic 校验。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "未预期的服务端错误。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/delivery/export": {
+      "post": {
+        "tags": [
+          "Delivery"
+        ],
+        "summary": "Export the closed-loop selected rows as CSV plus a provenance manifest",
+        "operationId": "export_dataset_route_api_v1_delivery_export_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ExportDatasetRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessEnvelope_ExportDatasetData_"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "请求参数或领域规则无效。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "目标资源不存在。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "请求体或路径参数未通过 Pydantic 校验。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "未预期的服务端错误。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -4449,6 +4592,129 @@
         ],
         "title": "ExecutionPlanStep"
       },
+      "ExportDatasetData": {
+        "properties": {
+          "export_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Export Id"
+          },
+          "dataset_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dataset Id"
+          },
+          "version_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Version Id"
+          },
+          "task": {
+            "$ref": "#/components/schemas/TaskResource"
+          },
+          "csv_uri": {
+            "type": "string",
+            "title": "Csv Uri"
+          },
+          "manifest_uri": {
+            "type": "string",
+            "title": "Manifest Uri"
+          },
+          "exported_rows": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Exported Rows"
+          },
+          "source_rows": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Source Rows"
+          },
+          "coverage_ratio": {
+            "type": "number",
+            "title": "Coverage Ratio"
+          },
+          "columns": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Columns"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "export_id",
+          "version_id",
+          "task",
+          "csv_uri",
+          "manifest_uri",
+          "exported_rows",
+          "source_rows",
+          "coverage_ratio"
+        ],
+        "title": "ExportDatasetData"
+      },
+      "ExportDatasetRequest": {
+        "properties": {
+          "version_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Version Id"
+          },
+          "dataset_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dataset Id"
+          },
+          "input_columns": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Input Columns"
+          },
+          "output_column": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Output Column"
+          },
+          "sample_indices": {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array",
+            "title": "Sample Indices"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "version_id"
+        ],
+        "title": "ExportDatasetRequest"
+      },
       "GatedWindow": {
         "properties": {
           "window_index": {
@@ -5098,6 +5364,206 @@
         "additionalProperties": false,
         "type": "object",
         "title": "ReadinessData"
+      },
+      "ReportBinding": {
+        "properties": {
+          "placeholder": {
+            "type": "string",
+            "title": "Placeholder"
+          },
+          "kind": {
+            "type": "string",
+            "title": "Kind"
+          },
+          "run_id": {
+            "type": "string",
+            "title": "Run Id"
+          },
+          "path": {
+            "type": "string",
+            "title": "Path"
+          },
+          "value": {
+            "type": "string",
+            "title": "Value"
+          },
+          "resolved": {
+            "type": "boolean",
+            "title": "Resolved"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "placeholder",
+          "kind",
+          "run_id",
+          "path",
+          "value",
+          "resolved"
+        ],
+        "title": "ReportBinding",
+        "description": "One number in the report, and the run record it was read from."
+      },
+      "ReportData": {
+        "properties": {
+          "report_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Report Id"
+          },
+          "dataset_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dataset Id"
+          },
+          "task": {
+            "$ref": "#/components/schemas/TaskResource"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "markdown": {
+            "type": "string",
+            "title": "Markdown"
+          },
+          "sections": {
+            "items": {
+              "$ref": "#/components/schemas/ReportSection"
+            },
+            "type": "array",
+            "title": "Sections"
+          },
+          "bindings": {
+            "items": {
+              "$ref": "#/components/schemas/ReportBinding"
+            },
+            "type": "array",
+            "title": "Bindings"
+          },
+          "unresolved": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Unresolved"
+          },
+          "fully_resolved": {
+            "type": "boolean",
+            "title": "Fully Resolved",
+            "default": true
+          },
+          "artifact_uri": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Artifact Uri"
+          },
+          "cited_runs": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Cited Runs"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "report_id",
+          "task",
+          "title",
+          "markdown",
+          "sections"
+        ],
+        "title": "ReportData"
+      },
+      "ReportRequest": {
+        "properties": {
+          "dataset_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dataset Id"
+          },
+          "version_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Version Id"
+          },
+          "study_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Study Id"
+          },
+          "title": {
+            "type": "string",
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Title",
+            "default": "IndusOpt 建模数据优选与辨识报告"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "ReportRequest"
+      },
+      "ReportSection": {
+        "properties": {
+          "key": {
+            "type": "string",
+            "title": "Key"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "body": {
+            "type": "string",
+            "title": "Body"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "key",
+          "title",
+          "body"
+        ],
+        "title": "ReportSection"
       },
       "SegmentData": {
         "properties": {
@@ -6286,6 +6752,35 @@
         ],
         "title": "SuccessEnvelope[DelayData]"
       },
+      "SuccessEnvelope_ExportDatasetData_": {
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "const": true,
+            "title": "Success",
+            "default": true
+          },
+          "data": {
+            "$ref": "#/components/schemas/ExportDatasetData"
+          },
+          "error": {
+            "type": "null",
+            "title": "Error"
+          },
+          "request_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Request Id"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "data",
+          "request_id"
+        ],
+        "title": "SuccessEnvelope[ExportDatasetData]"
+      },
       "SuccessEnvelope_LivenessData_": {
         "properties": {
           "success": {
@@ -6401,6 +6896,35 @@
           "request_id"
         ],
         "title": "SuccessEnvelope[ReadinessData]"
+      },
+      "SuccessEnvelope_ReportData_": {
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "const": true,
+            "title": "Success",
+            "default": true
+          },
+          "data": {
+            "$ref": "#/components/schemas/ReportData"
+          },
+          "error": {
+            "type": "null",
+            "title": "Error"
+          },
+          "request_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Request Id"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "data",
+          "request_id"
+        ],
+        "title": "SuccessEnvelope[ReportData]"
       },
       "SuccessEnvelope_SegmentData_": {
         "properties": {

@@ -43,6 +43,12 @@ from app.schemas.preprocessing import (
     SegmentData,
     SegmentRequest,
 )
+from app.schemas.reporting import (
+    ExportDatasetData,
+    ExportDatasetRequest,
+    ReportData,
+    ReportRequest,
+)
 from app.schemas.simulation import SimulationGenerateData, SimulationGenerateRequest
 from app.schemas.system import LivenessData, ReadinessData, SystemInfoData
 from app.schemas.tasks import CancelTaskData
@@ -73,6 +79,11 @@ from app.services.preprocessing_analysis_service import (
     AnalysisDomainError,
     run_collinearity_analysis,
     run_delay_estimation,
+)
+from app.services.report_service import (
+    ReportDomainError,
+    export_optimised_dataset,
+    generate_report,
 )
 from app.services.segment_service import SegmentDomainError, select_dynamic_segments
 from app.services.simulation_service import generate_simulation as generate_simulation_service
@@ -623,3 +634,61 @@ async def copilot_confirm(
             ),
         ),
     )
+
+
+@router.post(
+    "/reports/generate",
+    tags=["Delivery"],
+    summary="Generate a provenance-bound report where every number cites its run",
+    response_model=SuccessEnvelope[ReportData],
+    responses=ERROR_RESPONSES,
+)
+async def generate_report_route(
+    request: Request,
+    payload: ReportRequest,
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> SuccessEnvelope[ReportData]:
+    """Compose from persisted runs; a draft with a bare numeral is rejected, not rendered."""
+
+    try:
+        data = await generate_report(
+            session,
+            payload=payload,
+            artifact_root=get_settings().artifact_root,
+        )
+    except ReportDomainError as error:
+        raise AppError(
+            error.code,
+            error.message,
+            status_code=error.status_code,
+            details=error.details,
+        ) from error
+    return success(request, data)
+
+
+@router.post(
+    "/delivery/export",
+    tags=["Delivery"],
+    summary="Export the closed-loop selected rows as CSV plus a provenance manifest",
+    response_model=SuccessEnvelope[ExportDatasetData],
+    responses=ERROR_RESPONSES,
+)
+async def export_dataset_route(
+    request: Request,
+    payload: ExportDatasetRequest,
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> SuccessEnvelope[ExportDatasetData]:
+    try:
+        data = await export_optimised_dataset(
+            session,
+            payload=payload,
+            artifact_root=get_settings().artifact_root,
+        )
+    except ReportDomainError as error:
+        raise AppError(
+            error.code,
+            error.message,
+            status_code=error.status_code,
+            details=error.details,
+        ) from error
+    return success(request, data)

@@ -62,8 +62,29 @@ TOOL_PREREQUISITES: dict[str, tuple[str, ...]] = {
 }
 
 _KEYWORDS: dict[str, tuple[str, ...]] = {
-    "clean": ("清洗", "异常", "缺失", "重采样", "对齐", "规整", "去噪", "clean", "resample", "outlier"),
-    "segment": ("动态", "区间", "优选", "截取", "高信噪比", "稳态", "segment", "dynamic", "select data"),
+    "clean": (
+        "清洗",
+        "异常",
+        "缺失",
+        "重采样",
+        "对齐",
+        "规整",
+        "去噪",
+        "clean",
+        "resample",
+        "outlier",
+    ),
+    "segment": (
+        "动态",
+        "区间",
+        "优选",
+        "截取",
+        "高信噪比",
+        "稳态",
+        "segment",
+        "dynamic",
+        "select data",
+    ),
     "delay": ("时滞", "滞后", "纯滞后", "延迟", "delay", "lag", "dead time"),
     "collinearity": ("共线", "相关性", "冗余", "降维", "collinear", "vif", "redundant"),
     "model": ("辨识", "建模", "模型", "arx", "identif", "model"),

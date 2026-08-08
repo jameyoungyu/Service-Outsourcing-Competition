@@ -256,7 +256,9 @@ async def fit_arx_on_version(
             "PRIOR_CONSTRAINT_VIOLATED",
             "辨识结果与工程先验冲突，模型未入库。",
             details={
-                "violations": [violation.model_dump(mode="json") for violation in result.prior_violations]
+                "violations": [
+                    violation.model_dump(mode="json") for violation in result.prior_violations
+                ]
             },
         )
     if payload.require_stable and not result.validation.stable:
@@ -504,9 +506,7 @@ def _check_priors(
             continue
         if (sign == "positive" and gain <= 0) or (sign == "negative" and gain >= 0):
             violations.append(
-                PriorViolation(
-                    variable=column, kind="gain_sign", expected=sign, actual=float(gain)
-                )
+                PriorViolation(variable=column, kind="gain_sign", expected=sign, actual=float(gain))
             )
     for column, bounds in payload.gain_bounds.items():
         gain = gains.get(column)

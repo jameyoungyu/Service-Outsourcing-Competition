@@ -470,7 +470,9 @@ def _suggest(trial: optuna.Trial, overrides: dict[str, Any]) -> dict[str, Any]:
     # limit is not one the process can act on, so quantising costs no fidelity and lets
     # trials that differ only in model structure reuse the selection they share.
     params: dict[str, Any] = {
-        "window_size": trial.suggest_int("window_size", *_bounds_int(space["window_size"]), step=10),
+        "window_size": trial.suggest_int(
+            "window_size", *_bounds_int(space["window_size"]), step=10
+        ),
         "max_segments": trial.suggest_int("max_segments", *_bounds_int(space["max_segments"])),
         "max_anomaly_ratio": trial.suggest_float(
             "max_anomaly_ratio", *_bounds_float(space["max_anomaly_ratio"]), step=THRESHOLD_STEP

@@ -24,9 +24,7 @@ class TestCanonicalKeys:
         assert canonical_json({"a": 1, "b": 2}) == canonical_json({"b": 2, "a": 1})
 
     def test_key_ignores_float_noise_below_precision(self) -> None:
-        left = stage_key(
-            parent_key="p", tool_name="t", tool_version="1", parameters={"x": 0.1}
-        )
+        left = stage_key(parent_key="p", tool_name="t", tool_version="1", parameters={"x": 0.1})
         right = stage_key(
             parent_key="p", tool_name="t", tool_version="1", parameters={"x": 0.1 + 1e-15}
         )
@@ -199,8 +197,7 @@ class TestObjective:
         assert good_value > starved_value
         free_run_gap = good_breakdown["val_free_run_fit"] - starved_breakdown["val_free_run_fit"]
         one_step_gap = abs(
-            (good_breakdown["val_one_step_fit"] or 0)
-            - (starved_breakdown["val_one_step_fit"] or 0)
+            (good_breakdown["val_one_step_fit"] or 0) - (starved_breakdown["val_one_step_fit"] or 0)
         )
         assert free_run_gap > one_step_gap
 
@@ -330,9 +327,7 @@ class TestOptimizationApi:
         assert states <= {"complete", "pruned", "failed"}
         assert data["statistics"]["total_trials"] == len(data["trials"])
 
-    def test_second_study_on_a_different_dataset_is_warm_started(
-        self, client: TestClient
-    ) -> None:
+    def test_second_study_on_a_different_dataset_is_warm_started(self, client: TestClient) -> None:
         """The self-evolving path: a finished study leaves a reusable prior behind."""
 
         first_version = generate(client, seed=4)

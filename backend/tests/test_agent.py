@@ -243,9 +243,7 @@ class TestAgentApi:
         assert data["executed"] is False
         assert data["step_runs"] == []
 
-    def test_end_to_end_natural_language_run_executes_real_tools(
-        self, client: TestClient
-    ) -> None:
+    def test_end_to_end_natural_language_run_executes_real_tools(self, client: TestClient) -> None:
         """The headline use case: one sentence drives the whole pipeline."""
 
         version_id = benchmark_version(client)
