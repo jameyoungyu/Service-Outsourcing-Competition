@@ -89,10 +89,32 @@
             <div class="industrial-card-title">
               <el-icon><Share /></el-icon> Agent 编排计划
             </div>
-            <el-tag :type="result.executed ? 'success' : 'info'">
-              {{ result.executed ? "已执行" : "仅生成计划" }}
-            </el-tag>
+            <div class="header-tags">
+              <el-tag :type="result.plan_source === 'llm' ? 'success' : 'info'">
+                {{
+                  result.plan_source === "llm"
+                    ? `大模型编排 · ${result.llm_provider}/${result.llm_model}`
+                    : "确定性规则编排"
+                }}
+              </el-tag>
+              <el-tag :type="result.executed ? 'success' : 'info'">
+                {{ result.executed ? "已执行" : "仅生成计划" }}
+              </el-tag>
+            </div>
           </div>
+
+          <el-alert
+            v-if="result.llm_fallback_reason"
+            type="info"
+            :closable="false"
+            show-icon
+            class="alert-gap"
+          >
+            <template #title>
+              未采用大模型计划，已回退到确定性规则编排：{{ result.llm_fallback_reason }}
+              （无论计划由谁生成，都要通过同一套白名单与合规校验）
+            </template>
+          </el-alert>
 
           <el-steps direction="vertical" :active="activeStep" finish-status="success">
             <el-step
@@ -304,6 +326,12 @@ const stepStatus = (status: AgentStepStatus) =>
 
 .alert-gap {
   margin-top: 12px;
+}
+
+.header-tags {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
 }
 
 .proof-id {

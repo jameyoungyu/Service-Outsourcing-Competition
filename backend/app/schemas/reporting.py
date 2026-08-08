@@ -44,6 +44,13 @@ class ReportData(Schema):
     fully_resolved: bool = True
     artifact_uri: str | None = None
     cited_runs: list[str] = Field(default_factory=list)
+    # "llm" means a model wrote the closing commentary and it passed the numeral check;
+    # "template" means it was unavailable, or its draft was rejected for writing digits.
+    narration_source: str = "template"
+    llm_provider: str = "none"
+    llm_model: str = "none"
+    llm_fallback_reason: str | None = None
+    llm_rejected_attempts: int = Field(default=0, ge=0)
 
 
 class ExportDatasetRequest(Schema):

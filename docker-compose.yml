@@ -6,6 +6,17 @@ services:
       INDUSOPT_DATABASE_URL: postgresql+asyncpg://indusopt:indusopt@postgres:5432/indusopt
       INDUSOPT_REDIS_URL: redis://redis:6379/0
       INDUSOPT_APP_ENV: development
+      # Large language model. Leave INDUSOPT_LLM_PROVIDER unset or "none" to run fully
+      # offline on the deterministic planner. To enable, point these at any
+      # OpenAI-compatible endpoint — DeepSeek, Ollama, vLLM, Xinference, self-hosted
+      # ChatGLM/LLaMA. Example for a local Ollama on the host:
+      #   INDUSOPT_LLM_PROVIDER: ollama
+      #   INDUSOPT_LLM_BASE_URL: http://host.docker.internal:11434/v1
+      #   INDUSOPT_LLM_MODEL: qwen2.5:7b
+      INDUSOPT_LLM_PROVIDER: ${INDUSOPT_LLM_PROVIDER:-none}
+      INDUSOPT_LLM_BASE_URL: ${INDUSOPT_LLM_BASE_URL:-}
+      INDUSOPT_LLM_MODEL: ${INDUSOPT_LLM_MODEL:-}
+      INDUSOPT_LLM_API_KEY: ${INDUSOPT_LLM_API_KEY:-}
     ports:
       - "${INDUSOPT_BACKEND_PORT:-18000}:8000"
     volumes:
@@ -24,6 +35,17 @@ services:
       INDUSOPT_DATABASE_URL: postgresql+asyncpg://indusopt:indusopt@postgres:5432/indusopt
       INDUSOPT_REDIS_URL: redis://redis:6379/0
       INDUSOPT_APP_ENV: development
+      # Large language model. Leave INDUSOPT_LLM_PROVIDER unset or "none" to run fully
+      # offline on the deterministic planner. To enable, point these at any
+      # OpenAI-compatible endpoint — DeepSeek, Ollama, vLLM, Xinference, self-hosted
+      # ChatGLM/LLaMA. Example for a local Ollama on the host:
+      #   INDUSOPT_LLM_PROVIDER: ollama
+      #   INDUSOPT_LLM_BASE_URL: http://host.docker.internal:11434/v1
+      #   INDUSOPT_LLM_MODEL: qwen2.5:7b
+      INDUSOPT_LLM_PROVIDER: ${INDUSOPT_LLM_PROVIDER:-none}
+      INDUSOPT_LLM_BASE_URL: ${INDUSOPT_LLM_BASE_URL:-}
+      INDUSOPT_LLM_MODEL: ${INDUSOPT_LLM_MODEL:-}
+      INDUSOPT_LLM_API_KEY: ${INDUSOPT_LLM_API_KEY:-}
     volumes:
       - ./backend/data:/app/data
     depends_on:

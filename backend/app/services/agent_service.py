@@ -25,11 +25,9 @@ from typing import Any
 from uuid import UUID, uuid4
 
 from algorithms.agent.compliance import ComplianceProof, verify_plan
-from algorithms.agent.planner import (
-    PlannedStep,
-    RuleBasedPlanner,
-    parse_intent,
-)
+from algorithms.agent.llm import LlmProvider, build_provider
+from algorithms.agent.llm_planner import LlmPlanner, PlanOutcome
+from algorithms.agent.planner import PlannedStep, parse_intent
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.dataset import ProcessingRun
@@ -92,11 +90,25 @@ async def run_copilot(
     *,
     payload: CopilotChatRequest,
     artifact_root: Path,
+    provider: LlmProvider | None = None,
 ) -> CopilotChatData:
-    """Parse, plan, verify and (when the proof passes) execute."""
+    """Parse, plan, verify and (when the proof passes) execute.
+
+    The LLM proposes the plan when one is configured; the rule-based planner is the floor.
+    Either way the plan is validated identically, so an unreachable model degrades the
+    wording of the answer, never its safety.
+    """
 
     intent = parse_intent(payload.message)
-    steps, assumptions, stop_conditions = RuleBasedPlanner().plan(intent)
+    planner = LlmPlanner(provider or _resolve_provider(), code_version=CODE_VERSION)
+    outcome: PlanOutcome = planner.plan(payload.message, intent)
+    steps, assumptions, stop_conditions = (
+        outcome.steps,
+        list(outcome.assumptions),
+        outcome.stop_conditions,
+    )
+    if outcome.fallback_reason:
+        assumptions.append(f"未采用大模型计划：{outcome.fallback_reason}")
 
     confirmed = frozenset(
         str(step_id) for step_id in payload.context.get("confirmed_steps", []) or []
@@ -139,6 +151,8 @@ async def run_copilot(
         proof=proof,
         executions=executions,
         series=series,
+        plan_source=outcome.source,
+        llm_model=outcome.model,
     )
 
     return CopilotChatData(
@@ -177,6 +191,10 @@ async def run_copilot(
         ],
         conclusion=conclusion,
         executed=bool(executions),
+        plan_source=outcome.source,
+        llm_provider=outcome.provider,
+        llm_model=outcome.model,
+        llm_fallback_reason=outcome.fallback_reason,
     )
 
 
@@ -437,6 +455,21 @@ def _conclusion(
     return "；".join(parts) + "。"
 
 
+def _resolve_provider() -> LlmProvider:
+    """Build the configured provider. Import is local so algorithms/ stays app-agnostic."""
+
+    from app.core.config import get_settings
+
+    settings = get_settings()
+    return build_provider(
+        provider=settings.llm_provider,
+        base_url=settings.llm_base_url,
+        model=settings.llm_model,
+        api_key=settings.llm_api_key,
+        timeout_seconds=settings.llm_timeout_seconds,
+    )
+
+
 async def _persist(
     session: AsyncSession,
     *,
@@ -445,6 +478,8 @@ async def _persist(
     proof: ComplianceProof,
     executions: list[StepExecution],
     series: VersionSeries | None,
+    plan_source: str = "rule_based",
+    llm_model: str = "none",
 ) -> None:
     """Persist the full audit trail: request, proof, every step's input and output."""
 
@@ -458,6 +493,8 @@ async def _persist(
             status="succeeded" if proof.passed else "rejected",
             parameters=payload.model_dump(mode="json"),
             result={
+                "plan_source": plan_source,
+                "llm_model": llm_model,
                 "compliance": proof.to_payload(),
                 "steps": [
                     {
@@ -489,6 +526,8 @@ async def _persist(
                     "compliance_passed": proof.passed,
                     "proof_id": proof.proof_id,
                     "executed_steps": len(executions),
+                    "plan_source": plan_source,
+                    "llm_model": llm_model,
                     "executed_at": now.isoformat(),
                 },
                 ensure_ascii=False,

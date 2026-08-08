@@ -9,7 +9,7 @@ ARX 辨识与闭环寻优，交付可复现的数据版本、模型、指标与*
 
 ## 交付状态
 
-阶段 0–11 全部开发完成。完整闭环已在 187 个后端自动化测试下贯通（其中 2 项为端到端用例验收）：
+阶段 0–11 全部开发完成。完整闭环已在 208 个后端自动化测试下贯通（其中 2 项为端到端用例验收）：
 
 ```text
 工业 CSV 上传
@@ -22,7 +22,7 @@ ARX 辨识与闭环寻优，交付可复现的数据版本、模型、指标与*
 → 模型评价（一步 + 自由仿真）（同一接口，自由仿真为主指标）
 → 闭环寻优预处理参数        /optimization/optuna/start
 → 历史策略记忆与热启动      （同一接口，跨数据集复用）
-→ Agent 自然语言编排        /copilot/chat
+→ Agent 自然语言编排        /copilot/chat（大模型编排，回退至确定性规则）
 → 自动化基准               /benchmark/run
 → 真实数据血缘的图文报告    /reports/generate
 → 优选数据集导出           /delivery/export
@@ -33,6 +33,27 @@ ARX 辨识与闭环寻优，交付可复现的数据版本、模型、指标与*
 > 提取 1 号塔高信噪比的动态数据，处理共线性后，通过闭环寻优找出最佳模型数据
 
 Agent 解析意图 → 生成白名单计划 → 静态合规校验并出具签名证明 → 调度真实算法 → 汇报结论。
+
+### 大模型接入
+
+赛题要求接入开源大模型。系统支持任何 **OpenAI 兼容**的 chat/completions 端点，
+覆盖 DeepSeek、Ollama、vLLM、Xinference 以及自建 ChatGLM / LLaMA：
+
+```bash
+export INDUSOPT_LLM_PROVIDER=ollama
+export INDUSOPT_LLM_BASE_URL=http://localhost:11434/v1
+export INDUSOPT_LLM_MODEL=qwen2.5:7b
+# DeepSeek 云端则另加 INDUSOPT_LLM_API_KEY
+```
+
+**未配置时系统仍然完整可用**，这是刻意的：赛场可能没有网络，本地离线部署是硬性要求。
+大模型负责*提议*，不负责*授权*——
+
+- 大模型生成的计划要通过与规则计划**完全相同**的白名单、DAG 与合规静态校验；校验不过即回退并说明原因；
+- 大模型撰写报告结论时**一个数字都不许写**，只能输出占位符；写了数字的草稿会被拒绝并要求重写，
+  连续 3 次不合规则回退到模板化结论。
+
+因此模型不可用、输出畸形、甚至刻意越权，最坏结果都只是"回退 + 说明"，而不是错误的产物。
 
 **尚未完成**：前端 E2E 自动化测试、公开数据集外部验证、Docker Compose 实机启动验证
 （本开发环境无 Docker 守护进程，详见 `PHASE_STATUS.md`）。
@@ -62,7 +83,7 @@ Agent 解析意图 → 生成白名单计划 → 静态合规校验并出具签�
 
 ```bash
 cd backend
-python -m pytest -q                                   # 187 passed
+python -m pytest -q                                   # 208 passed
 python scripts/benchmark_identifiability.py --repeats 10
 curl -X POST http://localhost:18000/api/v1/benchmark/run \
   -H 'Content-Type: application/json' \

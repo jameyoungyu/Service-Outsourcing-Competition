@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import csv
 import json
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -22,6 +23,8 @@ from typing import Any
 from uuid import UUID, uuid4
 
 import numpy as np
+from algorithms.agent.llm import LlmProvider, build_provider
+from algorithms.agent.llm_planner import LlmNarrator, NarrationOutcome
 from algorithms.report.provenance import RenderResult, render_template, validate_draft
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -108,8 +111,15 @@ async def generate_report(
     *,
     payload: ReportRequest,
     artifact_root: Path,
+    provider: LlmProvider | None = None,
 ) -> ReportData:
-    """Compose, validate and render a provenance-bound report."""
+    """Compose, validate and render a provenance-bound report.
+
+    When a model is configured it writes the closing engineering commentary, under the rule
+    that it may not emit a single digit. Its draft goes through the same numeral validator
+    as everything else, so a model that ignores the rule produces a rejected paragraph and
+    the templated conclusion stands instead.
+    """
 
     index = await build_run_index(
         session, dataset_id=payload.dataset_id, version_id=payload.version_id
@@ -136,6 +146,13 @@ async def generate_report(
         }
 
     sections = _compose(index, payload)
+    narration = _narrate(provider or _resolve_provider(), index=index, sections=sections)
+    if narration.text:
+        sections.append(
+            ReportSection(
+                key="expert_commentary", title="十、专家结论（大模型撰写）", body=narration.text
+            )
+        )
     template = "\n\n".join(f"## {section.title}\n\n{section.body}" for section in sections)
 
     # The draft must contain no bare numerals. This is checked even though the composer is
@@ -171,7 +188,56 @@ async def generate_report(
         fully_resolved=rendered.fully_resolved,
         artifact_uri=artifact_uri,
         cited_runs=sorted(index.records),
+        narration_source=narration.source,
+        llm_provider=narration.provider,
+        llm_model=narration.model,
+        llm_fallback_reason=narration.fallback_reason,
+        llm_rejected_attempts=max(0, narration.attempts - (1 if narration.text else 0)),
     )
+
+
+def _resolve_provider() -> LlmProvider:
+    from app.core.config import get_settings
+
+    settings = get_settings()
+    return build_provider(
+        provider=settings.llm_provider,
+        base_url=settings.llm_base_url,
+        model=settings.llm_model,
+        api_key=settings.llm_api_key,
+        timeout_seconds=settings.llm_timeout_seconds,
+    )
+
+
+def _narrate(
+    provider: LlmProvider,
+    *,
+    index: RunIndex,
+    sections: list[ReportSection],
+) -> NarrationOutcome:
+    """Ask the model for closing commentary, offering it only real placeholder paths."""
+
+    paths: list[str] = []
+    for short, record in index.records.items():
+        for path in _leaf_paths(record):
+            paths.append(f"{short}.{path}")
+    context = "已完成的分析环节：\n" + "\n".join(f"- {section.title}" for section in sections)
+    return LlmNarrator(provider).narrate(context=context, available_paths=paths[:60])
+
+
+def _leaf_paths(record: Mapping[str, Any], prefix: str = "", depth: int = 0) -> list[str]:
+    """Enumerate scalar paths a narrative may cite, so the model cannot invent fields."""
+
+    if depth > 3:
+        return []
+    paths: list[str] = []
+    for key, value in record.items():
+        path = f"{prefix}{key}"
+        if isinstance(value, Mapping):
+            paths.extend(_leaf_paths(value, f"{path}.", depth + 1))
+        elif isinstance(value, (int, float, bool, str)):
+            paths.append(path)
+    return paths
 
 
 def _compose(index: RunIndex, payload: ReportRequest) -> list[ReportSection]:

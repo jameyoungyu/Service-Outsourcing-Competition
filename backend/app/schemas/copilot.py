@@ -88,6 +88,13 @@ class CopilotChatData(Schema):
     step_runs: list[AgentStepRun] = Field(default_factory=list)
     conclusion: str = ""
     executed: bool = False
+    # Where the plan came from. "llm" means a model authored it and it then passed the same
+    # whitelist and compliance checks a rule-based plan passes; "rule_based" means the
+    # deterministic planner produced it, either by configuration or after a fallback.
+    plan_source: Literal["llm", "rule_based"] = "rule_based"
+    llm_provider: str = "none"
+    llm_model: str = "none"
+    llm_fallback_reason: str | None = None
 
 
 class CopilotConfirmRequest(Schema):

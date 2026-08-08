@@ -47,6 +47,9 @@
 - 阶段 10：`algorithms/report/provenance.py` 数值溯源绑定（LLM 禁写数字）与 `report_service.py` 报告/导出；
 - 阶段 11：`benchmark_service.py` 产品内一键自评测基准；`S6` 异构激励场景并入仿真服务；
 - 新增 API：`/reports/generate`、`/delivery/export`、`/benchmark/run`；
+- 大模型接入：`algorithms/agent/llm.py`（OpenAI 兼容 Provider，覆盖 DeepSeek / Ollama / vLLM /
+  Xinference / 自建 ChatGLM·LLaMA）与 `algorithms/agent/llm_planner.py`（LLM 计划与报告结论撰写）；
+  未配置 Provider 时系统完整可用，这是离线部署的默认状态而非降级；
 - 前端：清洗、优选、时滞、共线性、辨识、寻优、Agent、交付、基准共 9 个视图改为真实数据绑定，
   新增「一键自评测基准」页面；全部 mock 回退已删除。
 
@@ -59,7 +62,12 @@
 - `free_run_simulate` 增加发散钳位，不稳定模型给出有限的差评分而非溢出为 inf；
 - 合规校验 `high_impact_confirmed` 改为 `high_impact_gated`：证明的性质是"高影响操作不会未经批准执行"，
   而非"一切已预先批准"，否则工程师无法先看到支撑决策的诊断结果；
-- `identification_service` 由 452 行缩减至 183 行，委托给统一内核。
+- `identification_service` 由 452 行缩减至 183 行，委托给统一内核；
+- Agent 计划改由大模型提议、规则实现兜底：大模型计划须通过与规则计划**完全相同**的白名单、
+  DAG、时序与合规静态校验，不通过即回退并在响应中给出原因；
+  `requires_confirmation` 一律取自白名单而非模型输出，模型无法借此解锁未确认的导出；
+- 报告结论段落改由大模型撰写，但被禁止书写任何数字：草稿经数值校验，含未溯源数字即拒绝并要求重写，
+  连续 3 次不合规回退到模板化结论。
 
 ### Fixed (phases 4-11)
 
@@ -78,7 +86,7 @@
 - 阶段 2 pytest `17 passed`，涵盖 S1–S5、随机种子重现、无噪声参数恢复、时间顺序与真实 API 闭环。
 - 阶段 3 pytest `23 passed`，新增 CSV 异常、GBK/分号识别、去重、真实 Profile、列映射、版本与删除路由测试；PostgreSQL Docker 迁移和 multipart 上传闭环通过。
 - 创新原型 pytest `27 passed`（`tests/test_identifiability.py`），Ruff 与 Mypy 通过；消融实验覆盖 10 组随机种子 × 2 场景 × 3 策略。
-- 阶段 4–11：后端 pytest `187 passed`（含 2 项端到端用例验收测试），Ruff 与 Mypy 全部通过（65 个源文件）；
+- 阶段 4–11：后端 pytest `187 passed`（含 2 项端到端用例验收测试），Ruff 与 Mypy 全部通过（67 个源文件）；
   前端 Vite 构建通过、`vue-tsc --noEmit` 退出码 0、Vitest `3 passed`；
   Alembic 单一 head `0003_optimization_and_memory`；
   Docker Compose 因本开发环境无 Docker 守护进程未实机验证（见 PHASE_STATUS）。

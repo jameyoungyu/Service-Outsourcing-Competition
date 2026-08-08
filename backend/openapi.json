@@ -3331,6 +3331,36 @@
             "type": "boolean",
             "title": "Executed",
             "default": false
+          },
+          "plan_source": {
+            "type": "string",
+            "enum": [
+              "llm",
+              "rule_based"
+            ],
+            "title": "Plan Source",
+            "default": "rule_based"
+          },
+          "llm_provider": {
+            "type": "string",
+            "title": "Llm Provider",
+            "default": "none"
+          },
+          "llm_model": {
+            "type": "string",
+            "title": "Llm Model",
+            "default": "none"
+          },
+          "llm_fallback_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Llm Fallback Reason"
           }
         },
         "additionalProperties": false,
@@ -5725,6 +5755,38 @@
             },
             "type": "array",
             "title": "Cited Runs"
+          },
+          "narration_source": {
+            "type": "string",
+            "title": "Narration Source",
+            "default": "template"
+          },
+          "llm_provider": {
+            "type": "string",
+            "title": "Llm Provider",
+            "default": "none"
+          },
+          "llm_model": {
+            "type": "string",
+            "title": "Llm Model",
+            "default": "none"
+          },
+          "llm_fallback_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Llm Fallback Reason"
+          },
+          "llm_rejected_attempts": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Llm Rejected Attempts",
+            "default": 0
           }
         },
         "additionalProperties": false,

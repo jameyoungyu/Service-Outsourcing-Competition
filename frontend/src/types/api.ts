@@ -598,6 +598,12 @@ export interface CopilotChatResponse {
   step_runs: AgentStepRun[];
   conclusion: string;
   executed: boolean;
+  /** "llm" means a model authored the plan and it then passed the same safety checks. */
+  plan_source: "llm" | "rule_based";
+  llm_provider: string;
+  llm_model: string;
+  /** Why the LLM plan was not used, when it was not. */
+  llm_fallback_reason: string | null;
 }
 
 export interface CopilotConfirmRequest {
@@ -644,6 +650,13 @@ export interface ReportResponse {
   fully_resolved: boolean;
   artifact_uri: string | null;
   cited_runs: string[];
+  /** "llm" means a model wrote the commentary and it passed the numeral check. */
+  narration_source: string;
+  llm_provider: string;
+  llm_model: string;
+  llm_fallback_reason: string | null;
+  /** Drafts rejected for containing unbound digits before one was accepted. */
+  llm_rejected_attempts: number;
 }
 
 export interface ExportDatasetRequest {

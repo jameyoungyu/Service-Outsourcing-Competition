@@ -36,6 +36,22 @@ class Settings(BaseSettings):
     ]
     log_level: str = "INFO"
 
+    # Large-language-model provider. Empty/"none" keeps the system on its deterministic
+    # path, which is the supported offline default: the venue may have no network.
+    # Any OpenAI-compatible endpoint works — DeepSeek, Ollama, vLLM, Xinference, or a
+    # self-hosted ChatGLM/LLaMA.
+    llm_provider: str = Field(
+        default="none",
+        description='LLM 提供方标识；"none" 表示禁用，系统使用确定性规则解析。',
+    )
+    llm_base_url: str = Field(
+        default="",
+        description="OpenAI 兼容的 chat/completions 基址，例如 http://localhost:11434/v1。",
+    )
+    llm_model: str = Field(default="", description="模型名称，例如 deepseek-chat 或 qwen2.5:7b。")
+    llm_api_key: str = Field(default="", description="API Key；本地 Ollama 等可留空。")
+    llm_timeout_seconds: float = Field(default=60.0, gt=0, le=600)
+
 
 @lru_cache
 def get_settings() -> Settings:

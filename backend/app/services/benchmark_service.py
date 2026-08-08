@@ -204,9 +204,7 @@ def _selection_experiment(
             if strategy == "full":
                 positions = full_rows
             elif strategy == "energy":
-                positions = select_by_energy(
-                    regressor, grid, budget_windows=payload.budget_windows
-                )
+                positions = select_by_energy(regressor, grid, budget_windows=payload.budget_windows)
             else:
                 positions = select_informative_windows(
                     regressor,
@@ -342,9 +340,7 @@ def _delay_experiment(scenarios: dict[str, Scenario]) -> BenchmarkExperiment:
                 )
             )
 
-    improved = sum(
-        1 for row in rows if row.metrics["prewhitened_error"] < row.metrics["raw_error"]
-    )
+    improved = sum(1 for row in rows if row.metrics["prewhitened_error"] < row.metrics["raw_error"])
     worse = sum(1 for row in rows if row.metrics["prewhitened_error"] > row.metrics["raw_error"])
     return BenchmarkExperiment(
         key="delay",

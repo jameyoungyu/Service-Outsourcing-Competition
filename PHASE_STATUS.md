@@ -67,6 +67,9 @@
 - 阶段 9：Agent 四层编排与机器可检验合规证明（`algorithms/agent/`、`agent_service.py`）；
 - 阶段 10：数值溯源绑定报告与优选数据集导出（`algorithms/report/`、`report_service.py`）；
 - 阶段 11：产品内一键自评测基准（`benchmark_service.py`），新增 S6 异构激励场景；
+- 大模型接入：`algorithms/agent/llm.py` OpenAI 兼容 Provider（DeepSeek / Ollama / vLLM / Xinference /
+  自建 ChatGLM·LLaMA）与 `llm_planner.py`；大模型计划须通过与规则计划相同的合规校验，
+  报告结论禁止书写数字、违规草稿自动重试并最终回退；未配置 Provider 时系统完整可用（离线默认）；
 - 前端 13 个业务视图全部改为真实数据绑定，删除全部 mock 回退（清洗、优选、时滞、共线性、辨识、寻优、Agent、交付、基准）。
 
 ### 差异化创新增补（INNO-1.0，2026-08-07）
@@ -125,8 +128,8 @@
 - Docker Compose：阶段 3 镜像构建、本地产物卷挂载、PostgreSQL/Redis 就绪、Alembic `0002_datasets_and_profiles (head)` 通过；容器内真实 multipart CSV 上传 → Profile → 列配置闭环通过；
 - 前端 Vitest 测试：`3 passed` (Pinia Store、ApiClient & ApiError)；
 - 前端 Vite 构建通过，`vue-tsc --noEmit` 退出码 0；
-- **阶段 4–11 全量后端测试：`187 passed`**（含清洗路由、门控与优选、时滞与共线性、辨识与先验、闭环寻优与策略记忆、Agent 与合规证明、报告溯源与导出、自评测基准）；
-- **Ruff 与 Mypy：全部通过（65 个源文件）**；
+- **阶段 4–11 全量后端测试：`208 passed`**（含清洗路由、门控与优选、时滞与共线性、辨识与先验、闭环寻优与策略记忆、Agent 与合规证明、报告溯源与导出、自评测基准）；
+- **Ruff 与 Mypy：全部通过（67 个源文件）**；
 - Docker Compose：**本环境无 Docker 守护进程，未实机验证**（见"当前问题"）；
 - 文档完整性检查：通过；
 - 创新原型测试：`tests/test_identifiability.py` `27 passed`（回归矩阵口径、无噪参数恢复、PE 阶次教科书标定、行列式引理与直接 `log det` 差一致性、lazy greedy 与朴素贪心逐窗口一致、信息增益单调不增、分区不越界、异构激励下优于 energy、自由仿真无噪精确复现、一步预测掩盖劣质模型、稳态增益解析值、不稳定多项式检出）；
@@ -137,7 +140,8 @@
 
 - [x] 通过：阶段 4–11 全部开发完成。CSV 上传 → 清洗规整 → 动态区间检测 → 质量约束 D-最优优选 →
   时滞估计补偿 → 共线性降维 → ARX 辨识 → 一步/自由仿真双评价 → 闭环寻优 → 策略记忆热启动 →
-  Agent 自然语言编排 → 自动化基准 → 溯源图文报告 → 优选数据集导出，全链路已在 185 个自动化测试下贯通。
+  Agent 自然语言编排（大模型驱动，离线可回退）→ 自动化基准 → 溯源图文报告 → 优选数据集导出，
+  全链路已在 208 个自动化测试下贯通。
 - [ ] 不通过
 
 ## 下一阶段进入条件
