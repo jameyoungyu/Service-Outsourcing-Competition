@@ -84,7 +84,7 @@
 
 ## 未完成
 
-- 公开数据集（CSTR / Tennessee Eastman）上的外部验证；
+- 公开数据集上的外部验证——**本环境内无法完成**：出网策略仅放行 GitHub / PyPI / npm，KU Leuven DaISy、nonlinearbenchmark.org、data.4tu.nl 的连接均被网关 403 拒绝（`nonlinear_benchmarks` 可从 PyPI 装上，但运行时取数同样被拒）。有外网的机器上可直接补做；
 - `EXP-1.1` §7 遗留实验已全部补测完成（完整加权分对照、窗口长度与预算敏感性扫描，见 `EXP-3.0`）；
 - Docker Compose 启动验证（本开发环境无 Docker 守护进程，见"测试结果"说明）。
 
