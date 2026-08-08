@@ -6,5 +6,8 @@ export default defineConfig({
   test: {
     globals: true,
     environment: "jsdom",
+    // Playwright owns e2e/. Vitest would collect those specs and fail on the missing
+    // browser runtime, which looks like a broken unit suite and is not one.
+    exclude: ["**/node_modules/**", "**/dist/**", "e2e/**"],
   },
 });

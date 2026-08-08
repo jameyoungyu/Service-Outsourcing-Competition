@@ -84,8 +84,8 @@
 
 ## 未完成
 
-- 前端 E2E 自动化测试（当前为单元测试 + 人工联调）；
 - 公开数据集（CSTR / Tennessee Eastman）上的外部验证；
+- 长时寻优的 Redis + RQ 后台化（当前同步执行）；
 - `EXP-1.1` §7 遗留实验已全部补测完成（完整加权分对照、窗口长度与预算敏感性扫描，见 `EXP-3.0`）；
 - Docker Compose 启动验证（本开发环境无 Docker 守护进程，见"测试结果"说明）。
 
@@ -128,6 +128,7 @@
 - Docker Compose：阶段 3 镜像构建、本地产物卷挂载、PostgreSQL/Redis 就绪、Alembic `0002_datasets_and_profiles (head)` 通过；容器内真实 multipart CSV 上传 → Profile → 列配置闭环通过；
 - 前端 Vitest 测试：`3 passed` (Pinia Store、ApiClient & ApiError)；
 - 前端 Vite 构建通过，`vue-tsc --noEmit` 退出码 0；
+- **前端 E2E（Playwright + Chromium）：`9 passed`**，冷启动全流程约 15 秒。真实浏览器驱动真实后端，无任何 mock：仿真六场景暴露、生成 → 门控 → D-最优优选、自评测基准四策略与秩状态、Agent 自然语言编排与合规证明、离线默认走确定性规则、404 与领域错误路径、13 个主视图无控制台异常；
 - **阶段 4–11 全量后端测试：`225 passed`**（含清洗路由、门控与优选、时滞与共线性、辨识与先验、闭环寻优与策略记忆、Agent 与合规证明、报告溯源与导出、自评测基准、加权分对照基线）；
 - **Ruff 与 Mypy：全部通过（68 个源文件）**；
 - Docker Compose：**本环境无 Docker 守护进程，未实机验证**（见"当前问题"）；
@@ -151,4 +152,4 @@
 
 - 竞赛交付物准备：项目概要、PPT、详细方案、演示视频、产品使用手册、交互录屏、分工过程文档；
 - 首次实机部署时补做一次 `docker compose build && docker compose up` 验证；
-- 建议补充公开数据集外部验证与前端 E2E 测试。
+- 建议补充公开数据集外部验证与长时寻优的后台化。

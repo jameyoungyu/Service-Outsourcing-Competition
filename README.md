@@ -55,7 +55,7 @@ export INDUSOPT_LLM_MODEL=qwen2.5:7b
 
 因此模型不可用、输出畸形、甚至刻意越权，最坏结果都只是"回退 + 说明"，而不是错误的产物。
 
-**尚未完成**：前端 E2E 自动化测试、公开数据集外部验证、Docker Compose 实机启动验证
+**尚未完成**：公开数据集外部验证、长时寻优的 Redis + RQ 后台化、Docker Compose 实机启动验证
 （本开发环境无 Docker 守护进程，详见 `PHASE_STATUS.md`）。
 
 ## 差异化创新
@@ -163,7 +163,12 @@ docker compose up
 ```bash
 cd backend && python -m pytest -q && python -m ruff check app algorithms tests scripts && python -m mypy app algorithms
 cd frontend && npx vue-tsc --noEmit && npm run build && npm test
+cd frontend && npm run test:e2e     # 真实浏览器 + 真实后端的端到端闭环
 ```
+
+E2E 不需要 Docker：`playwright.config.ts` 会自行拉起一个用完即弃的 SQLite 实例
+（`backend/scripts/serve_e2e.py`）与前端 preview 服务，跑的是同一套应用代码与同一批算法。
+PostgreSQL + Alembic 仍是唯一受支持的部署路径——E2E 跳过迁移，因此**不能**用它来证明迁移可用。
 
 算法实现与基线结果见 [`docs/algorithms/phase-2-simulation-arx-baseline.md`](docs/algorithms/phase-2-simulation-arx-baseline.md)
 与 [`docs/algorithms/algorithm-specification-v2.md`](docs/algorithms/algorithm-specification-v2.md)；

@@ -1704,7 +1704,7 @@ v1.1.0-report-delivery
 - 页面刷新恢复；
 - 多分辨率适配；
 - 图表性能测试；
-- E2E 主流程测试；
+- E2E 主流程测试；**已完成**：`frontend/e2e/closed-loop.spec.ts`，Playwright + 预装 Chromium 9 项，真实浏览器驱动真实后端（`backend/scripts/serve_e2e.py` 提供用完即弃的 SQLite 实例，不依赖 Docker）；
 - 演示模式优化。
 
 ## 16.4 开发者竞赛交付物

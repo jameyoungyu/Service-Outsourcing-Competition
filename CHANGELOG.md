@@ -124,6 +124,22 @@
 - S3 上 `energy` 参数误差最优次数最多（10/20，`ids` 7/20、`weighted` 3/20），差距在种子波动内，
   照实记录。20 个工作点全部满秩，无策略崩溃。
 
+### Added (2026-08-08，端到端测试)
+
+- 前端 E2E 测试套件（Playwright + 预装 Chromium，9 项）：真实浏览器驱动真实后端，无任何 mock。
+  一个只对着 mock 断言的 UI 测试只能证明 mock 正确，因此宁可慢——套件里跑的是真实 ARX 拟合与
+  真实贪心优选。断言刻意不锁定具体指标值，只检查流水线产出结构合理且 UI 如实呈现，
+  否则 E2E 会退化成基准测试的副本、并成为每次正常数值变动的绊线；
+- `backend/scripts/serve_e2e.py`：用完即弃的 SQLite 实例跑同一套应用代码，使 E2E 不依赖 Docker。
+  该脚本用 `metadata.create_all` 建表而非 Alembic，因此**不能**用 E2E 来声称迁移可用；
+- `vite.config.ts` 增加 dev/preview 的 `/api/v1` 代理：此前 `npm run dev` 会对着 Vite 自己发请求、
+  得到一片 404，每个开发者都要重新发现同一个修法。
+
+### Fixed (2026-08-08，端到端测试发现)
+
+- 仿真页只提供 S1–S5 单选项，**后端支持 S6 已久而前端从未暴露**——S6 正是整套差异化论证的支点。
+  已补上单选项，副标题的"S1-S5"同步更正为"S1-S6"，并由 E2E 断言六个场景全部可见，防止再次漂移。
+
 ### Verification
 
 - pytest `6 passed`、Ruff、Mypy、OpenAPI JSON 校验通过；
@@ -133,7 +149,8 @@
 - 创新原型 pytest `27 passed`（`tests/test_identifiability.py`），Ruff 与 Mypy 通过；消融实验覆盖 10 组随机种子 × 2 场景 × 3 策略。
 - 阶段 4–11：后端 pytest `225 passed`（含 2 项端到端用例验收、21 项大模型集成测试、10 项
   加权分对照基线测试与 7 项行预算/预算提示测试），Ruff 与 Mypy 全部通过（68 个源文件）；
-  前端 Vite 构建通过、`vue-tsc --noEmit` 退出码 0、Vitest `3 passed`；
+  前端 Vite 构建通过、`vue-tsc --noEmit` 退出码 0、Vitest `3 passed`、
+  Playwright E2E `9 passed`（真实浏览器 + 真实后端，冷启动约 15 秒）；
   Alembic 单一 head `0003_optimization_and_memory`；
   Docker Compose 因本开发环境无 Docker 守护进程未实机验证（见 PHASE_STATUS）。
 
