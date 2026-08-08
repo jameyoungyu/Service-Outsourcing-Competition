@@ -531,30 +531,79 @@ export interface OptunaStatusResponse {
 }
 
 // Copilot API Types
-export interface CopilotStepNode {
+export type AgentStepStatus =
+  | "pending"
+  | "running"
+  | "waiting_confirmation"
+  | "completed"
+  | "failed";
+
+export interface ExecutionPlanStep {
   step_id: string;
-  title: string;
-  tool_name: string;
-  status: "pending" | "running" | "waiting_confirmation" | "completed" | "failed";
-  requires_hitl: boolean;
-  impact_summary?: string | null;
+  tool: string;
+  depends_on: string[];
+  parameters: Record<string, any>;
+  requires_confirmation: boolean;
+  status: AgentStepStatus;
+}
+
+export interface ExecutionPlan {
+  goal: string;
+  dataset_id: string | null;
+  steps: ExecutionPlanStep[];
+  stop_conditions: string[];
+  assumptions: string[];
+}
+
+export interface ProofCheckData {
+  name: string;
+  passed: boolean;
+  detail: string;
+}
+
+/** Machine-checked evidence that the plan obeys the frozen safety rules. */
+export interface ComplianceProofData {
+  proof_id: string;
+  passed: boolean;
+  checks: ProofCheckData[];
+  signature: string;
+  code_version: string;
+  generated_at: string;
+}
+
+/** One executed step, carrying the real tool output rather than the agent's prose. */
+export interface AgentStepRun {
+  step_id: string;
+  tool: string;
+  status: AgentStepStatus;
+  parameters: Record<string, any>;
+  summary: string;
+  result: Record<string, any>;
+  duration_ms: number;
+  error_code: string | null;
 }
 
 export interface CopilotChatRequest {
-  prompt: string;
+  message: string;
   dataset_id?: string | null;
+  active_version_id?: string | null;
+  context?: Record<string, any>;
 }
 
 export interface CopilotChatResponse {
-  session_id: string;
-  reply_text: string;
-  plan_nodes: CopilotStepNode[];
-  active_step_id?: string | null;
+  copilot_run_id: string;
+  plan: ExecutionPlan;
+  task: TaskResource | null;
+  compliance: ComplianceProofData | null;
+  step_runs: AgentStepRun[];
+  conclusion: string;
+  executed: boolean;
 }
 
 export interface CopilotConfirmRequest {
-  session_id: string;
-  step_id: string;
+  copilot_run_id: string;
+  confirmation_id: string;
   approved: boolean;
-  custom_parameters?: Record<string, any>;
+  parameter_overrides?: Record<string, any>;
+  comment?: string | null;
 }

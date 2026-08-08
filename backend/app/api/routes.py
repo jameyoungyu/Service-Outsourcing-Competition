@@ -13,8 +13,6 @@ from app.schemas.copilot import (
     CopilotChatRequest,
     CopilotConfirmData,
     CopilotConfirmRequest,
-    ExecutionPlan,
-    ExecutionPlanStep,
 )
 from app.schemas.datasets import (
     DatasetConfigData,
@@ -48,8 +46,9 @@ from app.schemas.preprocessing import (
 from app.schemas.simulation import SimulationGenerateData, SimulationGenerateRequest
 from app.schemas.system import LivenessData, ReadinessData, SystemInfoData
 from app.schemas.tasks import CancelTaskData
+from app.services.agent_service import AgentDomainError, run_copilot
 from app.services.cleaning_service import CleaningDomainError, clean_dataset_version
-from app.services.contract_stubs import completed_task, new_id, queued_task
+from app.services.contract_stubs import completed_task, queued_task
 from app.services.dataset_service import (
     DatasetDomainError,
     configure_dataset_columns,
@@ -581,22 +580,26 @@ async def cancel_task(
     responses=ERROR_RESPONSES,
 )
 async def copilot_chat(
-    request: Request, payload: CopilotChatRequest
+    request: Request,
+    payload: CopilotChatRequest,
+    session: Annotated[AsyncSession, Depends(get_session)],
 ) -> SuccessEnvelope[CopilotChatData]:
-    plan = ExecutionPlan(
-        goal=payload.message,
-        dataset_id=payload.dataset_id,
-        steps=[
-            ExecutionPlanStep(
-                step_id="profile",
-                tool="profile_dataset",
-                depends_on=[],
-                requires_confirmation=False,
-            )
-        ],
-        assumptions=["阶段 1 返回经白名单校验的计划骨架，不会执行算法。"],
-    )
-    return success(request, CopilotChatData(copilot_run_id=new_id(), plan=plan, task=None))
+    """Plan from natural language, verify statically, then execute whitelisted tools."""
+
+    try:
+        data = await run_copilot(
+            session,
+            payload=payload,
+            artifact_root=get_settings().artifact_root,
+        )
+    except AgentDomainError as error:
+        raise AppError(
+            error.code,
+            error.message,
+            status_code=error.status_code,
+            details=error.details,
+        ) from error
+    return success(request, data)
 
 
 @router.post(

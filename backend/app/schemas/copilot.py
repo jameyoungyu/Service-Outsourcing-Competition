@@ -25,7 +25,10 @@ class ExecutionPlanStep(Schema):
         "analyze_collinearity",
         "select_variables",
         "fit_arx",
+        "evaluate_model",
         "optimize_pipeline",
+        "generate_report",
+        "export_dataset",
     ]
     depends_on: list[str] = Field(default_factory=list)
     parameters: dict[str, Any] = Field(default_factory=dict)
@@ -41,10 +44,50 @@ class ExecutionPlan(Schema):
     assumptions: list[str] = Field(default_factory=list)
 
 
+class ProofCheckData(Schema):
+    """One statically verified property of an execution plan."""
+
+    name: str
+    passed: bool
+    detail: str
+
+
+class ComplianceProofData(Schema):
+    """Machine-checked evidence that a plan obeys the frozen safety rules.
+
+    A plan whose proof does not pass is never executed, so this is the record of what was
+    verified rather than a promise about what the agent intends to do.
+    """
+
+    proof_id: str
+    passed: bool
+    checks: list[ProofCheckData]
+    signature: str
+    code_version: str
+    generated_at: str
+
+
+class AgentStepRun(Schema):
+    """One executed step: its inputs, its real tool output and its timing."""
+
+    step_id: str
+    tool: str
+    status: Literal["pending", "waiting_confirmation", "running", "completed", "failed"]
+    parameters: dict[str, Any] = Field(default_factory=dict)
+    summary: str
+    result: dict[str, Any] = Field(default_factory=dict)
+    duration_ms: float = 0.0
+    error_code: str | None = None
+
+
 class CopilotChatData(Schema):
     copilot_run_id: UUID
     plan: ExecutionPlan
     task: TaskResource | None = None
+    compliance: ComplianceProofData | None = None
+    step_runs: list[AgentStepRun] = Field(default_factory=list)
+    conclusion: str = ""
+    executed: bool = False
 
 
 class CopilotConfirmRequest(Schema):

@@ -1409,6 +1409,7 @@
           "Copilot"
         ],
         "summary": "Create a validated, whitelisted copilot execution-plan DAG",
+        "description": "Plan from natural language, verify statically, then execute whitelisted tools.",
         "operationId": "copilot_chat_api_v1_copilot_chat_post",
         "requestBody": {
           "content": {
@@ -1548,6 +1549,69 @@
   },
   "components": {
     "schemas": {
+      "AgentStepRun": {
+        "properties": {
+          "step_id": {
+            "type": "string",
+            "title": "Step Id"
+          },
+          "tool": {
+            "type": "string",
+            "title": "Tool"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "waiting_confirmation",
+              "running",
+              "completed",
+              "failed"
+            ],
+            "title": "Status"
+          },
+          "parameters": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Parameters"
+          },
+          "summary": {
+            "type": "string",
+            "title": "Summary"
+          },
+          "result": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Result"
+          },
+          "duration_ms": {
+            "type": "number",
+            "title": "Duration Ms",
+            "default": 0.0
+          },
+          "error_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Code"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "step_id",
+          "tool",
+          "status",
+          "summary"
+        ],
+        "title": "AgentStepRun",
+        "description": "One executed step: its inputs, its real tool output and its timing."
+      },
       "ArxFitData": {
         "properties": {
           "model_id": {
@@ -2788,6 +2852,49 @@
         ],
         "title": "ColumnStatistics"
       },
+      "ComplianceProofData": {
+        "properties": {
+          "proof_id": {
+            "type": "string",
+            "title": "Proof Id"
+          },
+          "passed": {
+            "type": "boolean",
+            "title": "Passed"
+          },
+          "checks": {
+            "items": {
+              "$ref": "#/components/schemas/ProofCheckData"
+            },
+            "type": "array",
+            "title": "Checks"
+          },
+          "signature": {
+            "type": "string",
+            "title": "Signature"
+          },
+          "code_version": {
+            "type": "string",
+            "title": "Code Version"
+          },
+          "generated_at": {
+            "type": "string",
+            "title": "Generated At"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "proof_id",
+          "passed",
+          "checks",
+          "signature",
+          "code_version",
+          "generated_at"
+        ],
+        "title": "ComplianceProofData",
+        "description": "Machine-checked evidence that a plan obeys the frozen safety rules.\n\nA plan whose proof does not pass is never executed, so this is the record of what was\nverified rather than a promise about what the agent intends to do."
+      },
       "CopilotChatData": {
         "properties": {
           "copilot_run_id": {
@@ -2807,6 +2914,33 @@
                 "type": "null"
               }
             ]
+          },
+          "compliance": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ComplianceProofData"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "step_runs": {
+            "items": {
+              "$ref": "#/components/schemas/AgentStepRun"
+            },
+            "type": "array",
+            "title": "Step Runs"
+          },
+          "conclusion": {
+            "type": "string",
+            "title": "Conclusion",
+            "default": ""
+          },
+          "executed": {
+            "type": "boolean",
+            "title": "Executed",
+            "default": false
           }
         },
         "additionalProperties": false,
@@ -4270,7 +4404,10 @@
               "analyze_collinearity",
               "select_variables",
               "fit_arx",
-              "optimize_pipeline"
+              "evaluate_model",
+              "optimize_pipeline",
+              "generate_report",
+              "export_dataset"
             ],
             "title": "Tool"
           },
@@ -4875,6 +5012,31 @@
         ],
         "title": "PriorViolation",
         "description": "One engineering prior the identified model failed."
+      },
+      "ProofCheckData": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "passed": {
+            "type": "boolean",
+            "title": "Passed"
+          },
+          "detail": {
+            "type": "string",
+            "title": "Detail"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "name",
+          "passed",
+          "detail"
+        ],
+        "title": "ProofCheckData",
+        "description": "One statically verified property of an execution plan."
       },
       "QualityIssue": {
         "properties": {
