@@ -265,10 +265,14 @@ def check_structure(text: str, sections: dict[str, str], report: Report) -> None
             main = main[:idx]
     chars = len(re.sub(r"\s", "", main))
     pages = chars / 950
-    if pages > 22:
-        report.add(DEDUCT, "篇幅", f"正文约 {chars} 字（≈{pages:.0f} 页），超出「尽量 20 页以内」。把长表和代码挪去附录。")
-    elif pages > 20:
-        report.add(HINT, "篇幅", f"正文约 {chars} 字（≈{pages:.0f} 页），接近 20 页上限。")
+    # 官方硬性规定与写作建议要分开：2026 年修订稿把上限定为 30 页，
+    # 「别为凑篇幅而写到 30 页」是建议，不是规则。把建议报成违规会误导人删掉该写的内容。
+    if pages > 30:
+        report.add(DEDUCT, "篇幅", f"正文约 {chars} 字（≈{pages:.0f} 页），超出 2026 年规范的硬性上限「正文不超过 30 页」。把长表和代码挪去附录（附录页数不限）。")
+    elif pages > 28:
+        report.add(HINT, "篇幅", f"正文约 {chars} 字（≈{pages:.0f} 页），逼近 30 页硬上限，排版后容易越线，留点余量。")
+    elif pages > 24:
+        report.add(HINT, "篇幅", f"正文约 {chars} 字（≈{pages:.0f} 页）。规范允许到 30 页，这是写作建议不是违规：内容完整的前提下不必往上限凑，重复解释和堆图不会加分。")
 
 
 def check_appendix(sections: dict[str, str], report: Report) -> None:
@@ -285,6 +289,79 @@ def check_appendix(sections: dict[str, str], report: Report) -> None:
         report.add(DEDUCT, "附录", f"附录代码仅 {total} 行，很可能不是完整可运行的程序。")
     if not re.search(r"文件列表|支撑材料", appendix):
         report.add(HINT, "附录", "附录建议给出支撑材料文件列表，说明每个文件对应论文哪一部分。")
+
+
+AI_TOOL_NAMES = [
+    "ChatGPT", "GPT-4", "GPT-5", "OpenAI", "Claude", "Anthropic", "DeepSeek", "Gemini",
+    "Copilot", "Cursor", "LLaMA", "Qwen", "通义千问", "文心一言", "讯飞星火", "Kimi",
+    "豆包", "智谱", "ChatGLM", "GLM-4", "Ollama", "Grok", "大语言模型", "生成式AI", "生成式 AI",
+]
+
+NO_AI_DECLARATION = re.compile(r"未使用(?:任何)?\s*(?:AI|人工智能|Ai)\s*工具|没有使用(?:任何)?\s*(?:AI|人工智能)\s*工具")
+
+# 队伍常常只写「由 AI 工具辅助生成」而不点名具体模型，光靠工具名清单会漏掉这类用法
+AI_USAGE_HINT = re.compile(
+    r"(?:由|经|借助|使用|采用|通过)\s*(?:AI|人工智能)\s*(?:工具)?\s*(?:生成|辅助|完成|撰写|编写|优化)"
+    r"|(?:AI|人工智能)\s*工具\s*(?:生成|辅助|使用)"
+    r"|AI\s*工具使用详情|AI工具使用详情"
+)
+
+
+def check_ai_compliance(text: str, sections: dict[str, str], report: Report) -> None:
+    """AI 工具使用规定合规检查（2025 年试行，2026 年继续适用）。
+
+    这条规定最容易被漏掉的地方在于：它对**所有**参赛队都有强制要求。
+    用了 AI 要标注、要列进参考文献、要交《AI工具使用详情》；
+    没用 AI 也**必须**在参考文献之后声明「本参赛队未使用任何 AI 工具」。
+    两种情况都不做，就是不符合规定，后果是取消评奖资格——不是扣分。
+    """
+    refs = find_section(sections, "参考文献")
+    if not refs:
+        return  # 不是一篇完整论文（比如只写了摘要），这项检查无从谈起
+
+    body = strip_code_blocks(text)
+    declared_no_ai = bool(NO_AI_DECLARATION.search(body))
+    tools_found = sorted({n for n in AI_TOOL_NAMES if n in body})
+    tools_in_refs = sorted({n for n in AI_TOOL_NAMES if n in refs})
+    uses_ai = bool(tools_found) or bool(AI_USAGE_HINT.search(body))
+
+    if declared_no_ai:
+        # 声明未使用，却又在参考文献里列了 AI 工具——自相矛盾，评委一定会追
+        if tools_in_refs:
+            report.add(RISK, "AI合规",
+                       f"正文声明未使用 AI 工具，但参考文献中出现了 {', '.join(tools_in_refs)}。两者矛盾，必须改到一致。")
+        return
+
+    if not uses_ai:
+        report.add(RISK, "AI合规",
+                   "既没有找到 AI 工具的使用标注，也没有找到「本参赛队未使用任何 AI 工具」的声明。"
+                   "规定要求未使用 AI 的队伍必须在参考文献之后明确声明——不写声明本身就是违规，后果是取消评奖资格。")
+        return
+
+    # 用了 AI：标注、参考文献著录、支撑材料三件都要齐
+    if not tools_in_refs:
+        named = f"（{', '.join(tools_found[:4])}）" if tools_found else "（正文只写了「AI 工具」，未点名具体模型）"
+        report.add(RISK, "AI合规",
+                   f"正文表明使用了 AI 工具{named}，但参考文献中没有著录。"
+                   "规定要求列出：工具名称，版本/型号，开发机构/公司，使用日期。"
+                   "示例：[1] DeepSeek, DeepSeek-R1-0528, 深度求索（DeepSeek）, 2025-09-05。")
+    else:
+        for n in tools_in_refs:
+            line = next((ln for ln in refs.splitlines() if n in ln), "")
+            # 版本与日期是著录格式里最常漏的两项
+            if not re.search(r"\d{4}\s*[-年/]\s*\d{1,2}", line):
+                report.add(DEDUCT, "AI合规", f"参考文献中 {n} 的条目缺少使用日期（格式：工具名称，版本/型号，开发机构/公司，使用日期）。")
+
+    if not re.search(r"AI\s*工具使用详情|AI工具使用详情", body):
+        report.add(RISK, "AI合规",
+                   "使用了 AI 工具，但没有提到《AI工具使用详情》。规定要求支撑材料中必须包含该说明"
+                   "（PDF，文件名「AI工具使用详情」），内容需覆盖工具名称与版本、使用目的与阶段、"
+                   "重要提示词与回复、最终采纳与人工修改情况。")
+
+    if not re.search(r"由\s*AI\s*(?:工具)?(?:生成|辅助)|AI\s*(?:生成|辅助)|本节.*AI|经 ?AI", body):
+        report.add(DEDUCT, "AI合规",
+                   "参考文献里著录了 AI 工具，但正文中找不到「此处内容由 AI 工具生成/辅助」这类标注。"
+                   "规定要求 AI 生成的内容在正文相应位置标注。")
 
 
 def check_references(text: str, sections: dict[str, str], report: Report) -> None:
@@ -512,6 +589,7 @@ def run_checks(text: str, results_path: Path | None, data_paths: list[Path] | No
     check_abstract(sections, report)
     check_structure(text, sections, report)
     check_appendix(sections, report)
+    check_ai_compliance(text, sections, report)
     check_references(text, sections, report)
     check_figures_tables(text, report)
     check_leftovers(text, report)
