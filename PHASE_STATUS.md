@@ -125,7 +125,7 @@
 - Docker Compose：阶段 3 镜像构建、本地产物卷挂载、PostgreSQL/Redis 就绪、Alembic `0002_datasets_and_profiles (head)` 通过；容器内真实 multipart CSV 上传 → Profile → 列配置闭环通过；
 - 前端 Vitest 测试：`3 passed` (Pinia Store、ApiClient & ApiError)；
 - 前端 Vite 构建通过，`vue-tsc --noEmit` 退出码 0；
-- **阶段 4–11 全量后端测试：`185 passed`**（含清洗路由、门控与优选、时滞与共线性、辨识与先验、闭环寻优与策略记忆、Agent 与合规证明、报告溯源与导出、自评测基准）；
+- **阶段 4–11 全量后端测试：`187 passed`**（含清洗路由、门控与优选、时滞与共线性、辨识与先验、闭环寻优与策略记忆、Agent 与合规证明、报告溯源与导出、自评测基准）；
 - **Ruff 与 Mypy：全部通过（65 个源文件）**；
 - Docker Compose：**本环境无 Docker 守护进程，未实机验证**（见"当前问题"）；
 - 文档完整性检查：通过；

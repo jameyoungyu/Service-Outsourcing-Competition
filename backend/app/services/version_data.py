@@ -30,6 +30,8 @@ from app.services.simulation_service import (
 FloatArray = NDArray[np.float64]
 
 MISSING_TOKENS = {"", "na", "n/a", "null", "none", "nan"}
+# The vocabulary `dataset_csv._infer_type` emits for modellable columns.
+NUMERIC_COLUMN_TYPES = frozenset({"integer", "float", "numeric"})
 
 
 class VersionDataError(Exception):
@@ -176,10 +178,13 @@ async def _load_persisted_version(
             )
         ).all()
     )
+    # The CSV parser labels columns "integer"/"float", not "numeric"; matching the wrong
+    # token silently rejected every uploaded dataset as having no modellable signal.
     numeric_names = [
         name
         for name in parsed.headers
-        if name != parsed.timestamp_column and parsed.inferred_types.get(name) == "numeric"
+        if name != parsed.timestamp_column
+        and parsed.inferred_types.get(name) in NUMERIC_COLUMN_TYPES
     ]
     values = {name: _column_array(parsed.rows, name) for name in numeric_names}
     if not values:

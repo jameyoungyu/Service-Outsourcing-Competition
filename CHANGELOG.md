@@ -78,7 +78,7 @@
 - 阶段 2 pytest `17 passed`，涵盖 S1–S5、随机种子重现、无噪声参数恢复、时间顺序与真实 API 闭环。
 - 阶段 3 pytest `23 passed`，新增 CSV 异常、GBK/分号识别、去重、真实 Profile、列映射、版本与删除路由测试；PostgreSQL Docker 迁移和 multipart 上传闭环通过。
 - 创新原型 pytest `27 passed`（`tests/test_identifiability.py`），Ruff 与 Mypy 通过；消融实验覆盖 10 组随机种子 × 2 场景 × 3 策略。
-- 阶段 4–11：后端 pytest `185 passed`，Ruff 与 Mypy 全部通过（65 个源文件）；
+- 阶段 4–11：后端 pytest `187 passed`（含 2 项端到端用例验收测试），Ruff 与 Mypy 全部通过（65 个源文件）；
   前端 Vite 构建通过、`vue-tsc --noEmit` 退出码 0、Vitest `3 passed`；
   Alembic 单一 head `0003_optimization_and_memory`；
   Docker Compose 因本开发环境无 Docker 守护进程未实机验证（见 PHASE_STATUS）。

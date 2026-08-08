@@ -9,7 +9,7 @@ ARX 辨识与闭环寻优，交付可复现的数据版本、模型、指标与*
 
 ## 交付状态
 
-阶段 0–11 全部开发完成。完整闭环已在 185 个后端自动化测试下贯通：
+阶段 0–11 全部开发完成。完整闭环已在 187 个后端自动化测试下贯通（其中 2 项为端到端用例验收）：
 
 ```text
 工业 CSV 上传
@@ -62,7 +62,7 @@ Agent 解析意图 → 生成白名单计划 → 静态合规校验并出具签�
 
 ```bash
 cd backend
-python -m pytest -q                                   # 185 passed
+python -m pytest -q                                   # 187 passed
 python scripts/benchmark_identifiability.py --repeats 10
 curl -X POST http://localhost:18000/api/v1/benchmark/run \
   -H 'Content-Type: application/json' \
