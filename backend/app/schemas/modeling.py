@@ -67,6 +67,13 @@ class ModelValidationData(Schema):
     residual_whiteness_ratio: float | None = None
     n_samples: int = Field(default=0, ge=0)
     partition: str = "validation"
+    excitation_shortfall: dict[str, dict[str, int]] = Field(
+        default_factory=dict,
+        description=(
+            "持续激励阶次低于 na+nb 的通道及其实际/所需阶次。"
+            "这是诊断而非阻断：实测该判据无法区分可用与不可用的数据（见 ALG-0.2 §3）。"
+        ),
+    )
 
 
 class ArxMetrics(Schema):

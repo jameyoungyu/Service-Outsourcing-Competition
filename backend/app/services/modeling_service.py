@@ -19,13 +19,16 @@ Two things differ from a textbook least-squares fit:
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Literal
 from uuid import UUID, uuid4
 
 import numpy as np
+from algorithms.identifiability.excitation import (
+    profile_excitation,
+)
 from algorithms.identifiability.regressor import (
     ArxStructure,
     FloatArray,
@@ -99,6 +102,9 @@ class ArxCoreResult:
     input_columns: list[str]
     output_column: str
     estimator: Literal["ols", "ridge"]
+    # Channels whose persistent-excitation order falls short of na+nb. Reported, never
+    # enforced — see the comment at the check itself for the measurement behind that.
+    excitation_shortfall: dict[str, dict[str, int]] = field(default_factory=dict)
 
     @property
     def objective_fit(self) -> float:
@@ -153,6 +159,33 @@ def fit_arx_core(
     train_features = full.features[train_rows]
     train_targets = full.targets[train_rows]
     estimator = payload.resolved_estimator()
+
+    # Persistent excitation is reported, not enforced. ALG-0.2 §3 originally specified it as
+    # a blocking precondition; measurement says it cannot carry that weight.
+    #
+    # The finite-sample PE-order estimate does not separate usable data from unusable data
+    # here. Measured on multi-level inputs at the calibrated tolerance 1e-3, an input with
+    # 8 distinct levels reports order 1 while its model reaches 95.8% free-run FIT; at 1e-4
+    # a 3-level input reports order 4 — clearing the na+nb requirement — while its model
+    # collapses to 0.2% free-run FIT. No tolerance separated the two, and 1e-4 also breaks
+    # the textbook calibration a single step must satisfy. Blocking on this would reject
+    # good models and admit bad ones, so it stays a diagnostic and the shortfall is surfaced
+    # on the response. What does block is rank deficiency below, which is the failure mode
+    # actually measured in EXP-1.1 and EXP-3.0.
+    excitation = profile_excitation(
+        full.take(train_rows),
+        inputs={column: values[full.time_indices[train_rows]] for column, values in inputs.items()},
+    )
+    excitation_shortfall = {
+        column: {
+            "actual": excitation.persistent_excitation_order.get(column, 0),
+            "required": excitation.required_excitation_order[column],
+        }
+        for column in structure.input_columns
+        if excitation.persistent_excitation_order.get(column, 0)
+        < excitation.required_excitation_order[column]
+    }
+
     rank = int(np.linalg.matrix_rank(train_features))
     if estimator == "ols" and rank < train_features.shape[1]:
         raise ModelingDomainError(
@@ -217,6 +250,7 @@ def fit_arx_core(
         input_columns=list(input_columns),
         output_column=payload.output_column,
         estimator=estimator,
+        excitation_shortfall=excitation_shortfall,
     )
 
 
@@ -290,14 +324,17 @@ async def fit_arx_on_version(
         plot_data=result.plot_data,
         residual_diagnostics=result.residual_diagnostics,
         artifact_uri=artifact_uri,
-        validation=to_validation_data(result.validation),
+        validation=to_validation_data(result.validation, result.excitation_shortfall),
         prior_violations=list(result.prior_violations),
         training_rows=result.training_rows,
         free_run_series=result.free_run_series,
     )
 
 
-def to_validation_data(validation: ModelValidation) -> ModelValidationData:
+def to_validation_data(
+    validation: ModelValidation,
+    excitation_shortfall: dict[str, dict[str, int]] | None = None,
+) -> ModelValidationData:
     return ModelValidationData(
         one_step_fit=_finite(validation.one_step_fit),
         free_run_fit=_finite(validation.free_run_fit),
@@ -312,6 +349,7 @@ def to_validation_data(validation: ModelValidation) -> ModelValidationData:
         },
         residual_whiteness_ratio=_finite(validation.residual_whiteness_ratio),
         n_samples=validation.n_samples,
+        excitation_shortfall=dict(excitation_shortfall or {}),
     )
 
 

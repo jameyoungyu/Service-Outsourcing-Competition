@@ -1,7 +1,12 @@
 # IndusOpt 错误码字典
 
-版本：`ERR-1.0`  
-状态：阶段 1 已冻结。所有错误均遵循 [`api-conventions.md`](api-conventions.md) 的 `ErrorEnvelope`。
+版本：`ERR-1.1`（2026-08-08 与实现对齐）
+状态：阶段 1 冻结的语义不变，本版补入阶段 4–11 新增的错误码，并如实标注哪些是"已规划未实现"。
+所有错误均遵循 [`api-conventions.md`](api-conventions.md) 的 `ErrorEnvelope`。
+
+> **本版做的事**：把字典与代码逐条对了一遍。阶段 4–11 新增了 10 个实际会返回的错误码，
+> 此前从未写进字典；同时字典里有 12 个是阶段 0/1 规划的、代码中并不存在，
+> 照原样留着会让接入方为不会发生的分支写处理逻辑。两类都标出来了。
 
 | 错误码 | HTTP | 含义 | 客户端建议 |
 |---|---:|---|---|
@@ -37,5 +42,43 @@
 | `SYSTEM_NOT_READY` | 503 | PostgreSQL 或 Redis 不可用 | 重试就绪检查；不要提交算法任务。 |
 | `SYSTEM_INTERNAL_ERROR` | 500 | 未预期服务端错误 | 呈现 `request_id` 并联系维护者。 |
 | `HTTP_ERROR` | 4xx | 未映射的 HTTP 请求错误 | 显示可读提示并记录 `request_id`。 |
+
+## 阶段 4–11 新增（已实现）
+
+| 错误码 | HTTP | 含义 | 客户端建议 |
+|---|---:|---|---|
+| `PARAMETER_OUT_OF_RANGE` | 400 | 算法参数越界或互斥参数冲突 | 读 `details` 中的字段名与边界，修正后重试。 |
+| `MODEL_UNSTABLE` | 400 | 辨识所得 `A(q)` 有极点在单位圆外 | 降低 `na`、增大正则，或检查数据。 |
+| `PRIOR_CONSTRAINT_VIOLATED` | 400 | 模型违反工程师给定的增益符号/区间先验 | 同时复核数据与先验——两者都可能错。 |
+| `NO_NUMERIC_SIGNAL` | 400 | 版本中没有可用的数值列 | 检查列角色配置是否指对了输入/输出列。 |
+| `OPTIMIZATION_STUDY_NOT_FOUND` | 404 | 寻优任务不存在 | 刷新任务列表；注意后台执行的任务需用返回的 study_id 轮询。 |
+| `STUDY_EXECUTION_FAILED` | 500 | 寻优执行中途失败，研究行已置为 `failed` | 查看研究状态中的 `statistics.error_code`。 |
+| `REPORT_NO_RUNS` | 400 | 该版本没有可供报告引用的运行记录 | 先执行优选/辨识，再生成报告。 |
+| `REPORT_CONTAINS_UNBOUND_NUMERAL` | 400 | 报告草稿含未绑定到运行记录的数字 | 系统会自动重试并最终回退到模板化结论，通常无需人工干预。 |
+| `EXPORT_NO_SELECTION` | 400 | 尚未执行优选，无可导出内容 | 先在优选页产出结果。 |
+| `BENCHMARK_GENERATION_FAILED` | 400 | 自评测基准的场景生成失败 | 降低样本数或更换场景后重试。 |
+
+## 已规划但当前未实现
+
+下列错误码在阶段 0/1 的设计中定义，**代码中不存在**，接入方不必为其编写处理分支。
+保留在字典中是因为它们描述的失败模式仍然真实，将来可能实现。
+
+`IRREGULAR_SAMPLING_UNRESOLVED`、`TOO_MUCH_MISSING_DATA`、`DELAY_UNCERTAIN`、
+`COLLINEARITY_UNRESOLVED`、`SINGULAR_MATRIX`、`TEST_SET_LEAKAGE_ATTEMPT`、
+`OPTIMIZATION_NOT_FOUND`（实际使用 `OPTIMIZATION_STUDY_NOT_FOUND`）、
+`TASK_NOT_FOUND`、`TASK_CANCELLED`、`TOOL_NOT_ALLOWED`、`AGENT_PLAN_INVALID`、
+`CONFIRMATION_NOT_FOUND`。
+
+> Agent 的非法计划当前不通过错误码上报：计划由静态合规校验拦截，
+> 校验结论以 `compliance.checks` 的逐项结果与签名证明返回，不通过即回退到规则计划。
+> 这比抛一个错误码信息量更大，因此没有实现 `AGENT_PLAN_INVALID` / `TOOL_NOT_ALLOWED`。
+
+## 关于持续激励
+
+`INSUFFICIENT_EXCITATION` **不是错误码**。该判据曾按 `ALG-0.2` 初版实现为阻断，
+实测证明它无法区分可用与不可用的数据（详见 `ALG-0.2` §3 的数据表），
+因此降级为诊断字段 `validation.excitation_shortfall`，不阻断建模。
+
+---
 
 错误码可在后续阶段新增，但已冻结代码的语义和 HTTP 类别不得变更；如需不兼容字段或语义改动，必须提升 `/api` 主版本。

@@ -5234,6 +5234,17 @@
             "type": "string",
             "title": "Partition",
             "default": "validation"
+          },
+          "excitation_shortfall": {
+            "additionalProperties": {
+              "additionalProperties": {
+                "type": "integer"
+              },
+              "type": "object"
+            },
+            "type": "object",
+            "title": "Excitation Shortfall",
+            "description": "持续激励阶次低于 na+nb 的通道及其实际/所需阶次。这是诊断而非阻断：实测该判据无法区分可用与不可用的数据（见 ALG-0.2 §3）。"
           }
         },
         "additionalProperties": false,
