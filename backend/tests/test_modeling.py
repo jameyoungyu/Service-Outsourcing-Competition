@@ -282,3 +282,67 @@ class TestModelingApi:
             },
         )
         assert response.status_code == 404
+
+
+class TestExcitationIsReportedNotEnforced:
+    """`ALG-0.2` §3 originally specified persistent excitation as a blocking precondition.
+
+    Implementing it that way and measuring the result showed the criterion cannot carry
+    that weight: at the calibrated tolerance an 8-level input reports PE order 1 while its
+    model reaches 95.8% free-run FIT, and at a looser tolerance a 3-level input clears the
+    na+nb requirement while its model collapses to 0.2%. No tolerance separated the two.
+
+    These tests pin the resulting decision in place so it is not quietly reverted into a
+    gate that rejects good models and admits bad ones.
+    """
+
+    def test_a_richly_excited_record_reports_no_shortfall_or_a_harmless_one(self) -> None:
+        inputs = make_inputs(3000)
+        output = simulate(inputs, noise=0.02)
+        result = fit(inputs, output)
+        # Whatever the estimator says, a model this good must not have been blocked.
+        assert result.validation.free_run_fit is not None
+        assert result.validation.free_run_fit > 80.0
+
+    def test_an_under_excited_record_still_returns_a_model_plus_the_shortfall(self) -> None:
+        """Two constant-ish levels: genuinely poor excitation, and it must not raise."""
+
+        n = 3000
+        inputs = {}
+        for offset, column in enumerate(B):
+            values = np.zeros(n, dtype=float)
+            values[n // 2 :] = 1.0 + 0.25 * offset
+            inputs[column] = values
+        output = simulate(inputs, noise=0.02)
+
+        result = fit(inputs, output)  # must not raise
+        assert result.validation is not None
+        # The shortfall is reported so the engineer can see why the model may be poor.
+        assert result.excitation_shortfall, "欠激励必须被上报，否则工程师无从判断"
+        for channel, orders in result.excitation_shortfall.items():
+            assert orders["actual"] < orders["required"], channel
+
+    def test_the_shortfall_reaches_the_response_schema(self) -> None:
+        from app.services.modeling_service import to_validation_data
+
+        n = 3000
+        inputs = {c: np.concatenate([np.zeros(n // 2), np.ones(n - n // 2)]) for c in B}
+        output = simulate(inputs, noise=0.02)
+        result = fit(inputs, output)
+        payload = to_validation_data(result.validation, result.excitation_shortfall)
+        assert payload.excitation_shortfall == result.excitation_shortfall
+
+    def test_rank_deficiency_is_what_actually_blocks(self) -> None:
+        """The hard gate is the design matrix, not the PE-order estimate."""
+
+        n = 2000
+        base = np.zeros(n, dtype=float)
+        base[n // 3 :] = 1.0
+        # Identical inputs *and* identical delays make the two regressor blocks exact
+        # duplicates, so OLS cannot separate their contributions. (Different delays would
+        # only make them shifted copies, which stays numerically full rank.)
+        inputs = {column: base.copy() for column in B}
+        output = simulate(inputs, noise=0.01)
+        with pytest.raises(ModelingDomainError) as error:
+            fit(inputs, output, estimator="ols", delays=dict.fromkeys(B, 3))
+        assert error.value.code == "DESIGN_MATRIX_RANK_DEFICIENT"

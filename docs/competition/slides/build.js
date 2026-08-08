@@ -166,7 +166,7 @@ function card(s, opt) {
   const stats = [
     ["14.3%", "的数据达到全量精度"],
     ["28.5×", "指标区分度差距"],
-    ["233", "项后端自动化测试"],
+    ["237", "项后端自动化测试"],
   ];
   stats.forEach(([big, small], i) => {
     const x = M + i * 3.15;
@@ -1075,7 +1075,7 @@ function card(s, opt) {
   title(s, "工程完成度", "全部门禁通过，可复现");
 
   const stats = [
-    ["233", "后端自动化测试", TEAL],
+    ["237", "后端自动化测试", TEAL],
     ["9", "前端 E2E（真实浏览器）", TEAL],
     ["69", "源文件 Ruff + Mypy 全通过", TEAL],
     ["23", "OpenAPI 3.1.0 端点", TEAL],
