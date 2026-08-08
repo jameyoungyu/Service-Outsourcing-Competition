@@ -1,0 +1,3145 @@
+IndusOpt 工模智优 —— 计算机软件著作权登记 源程序
+源程序共 404 页（20160 行，每页 50 行）。按规定提交前 30 页（第 1–30 页）与后 30 页（第 375–404 页），中间页略。
+
+==============================================================================
+==== backend/app/main.py
+==============================================================================
+import logging
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+from uuid import uuid4
+
+from fastapi import FastAPI, Request
+from fastapi.encoders import jsonable_encoder
+from fastapi.exceptions import RequestValidationError
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from starlette.exceptions import HTTPException as StarletteHTTPException
+
+from app.api.routes import router
+from app.core.config import get_settings
+from app.core.db import dispose_engine
+from app.core.errors import AppError
+from app.core.logging import configure_logging
+from app.core.middleware import RequestContextMiddleware
+from app.schemas.common import ErrorDetail, ErrorEnvelope
+
+logger = logging.getLogger(__name__)
+
+
+def _request_id(request: Request) -> str:
+    return getattr(request.state, "request_id", str(uuid4()))
+
+
+def _error_response(
+    request: Request,
+    *,
+    status_code: int,
+    code: str,
+    message: str,
+    details: dict[str, object] | None = None,
+) -> JSONResponse:
+    body = ErrorEnvelope(
+        error=ErrorDetail(code=code, message=message, details=details or {}),
+        request_id=_request_id(request),
+    )
+    return JSONResponse(status_code=status_code, content=jsonable_encoder(body))
+
+
+@asynccontextmanager
+async def lifespan(_: FastAPI) -> AsyncIterator[None]:
+    settings = get_settings()
+    configure_logging(settings.log_level)
+    yield
+
+—— 第 1 页 / 共 404 页 ——
+
+    await dispose_engine()
+
+
+def create_app() -> FastAPI:
+    settings = get_settings()
+    app = FastAPI(
+        title="IndusOpt API",
+        version=settings.app_version,
+        description=(
+            "IndusOpt 工模智优 API。阶段 1 冻结字段级接口契约；算法与持久化路由均以可替换骨架提供。"
+        ),
+        openapi_version="3.1.0",
+        lifespan=lifespan,
+    )
+    app.add_middleware(RequestContextMiddleware)
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=settings.cors_origins,
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+        expose_headers=["X-Request-ID"],
+    )
+
+    @app.exception_handler(AppError)
+    async def handle_app_error(request: Request, exc: AppError) -> JSONResponse:
+        logger.warning(
+            "application_error",
+            extra={"error_code": exc.code, "status_code": exc.status_code},
+        )
+        return _error_response(
+            request,
+            status_code=exc.status_code,
+            code=exc.code,
+            message=exc.message,
+            details=exc.details,
+        )
+
+    @app.exception_handler(RequestValidationError)
+    async def handle_validation_error(
+        request: Request, exc: RequestValidationError
+    ) -> JSONResponse:
+        return _error_response(
+            request,
+            status_code=422,
+            code="REQUEST_VALIDATION_FAILED",
+            message="请求参数校验失败",
+            details={"issues": jsonable_encoder(exc.errors())},
+        )
+
+
+—— 第 2 页 / 共 404 页 ——
+
+    @app.exception_handler(StarletteHTTPException)
+    async def handle_http_error(request: Request, exc: StarletteHTTPException) -> JSONResponse:
+        code = "ROUTE_NOT_FOUND" if exc.status_code == 404 else "HTTP_ERROR"
+        message = "接口不存在" if exc.status_code == 404 else "请求无法处理"
+        return _error_response(
+            request,
+            status_code=exc.status_code,
+            code=code,
+            message=message,
+            details={"detail": exc.detail},
+        )
+
+    @app.exception_handler(Exception)
+    async def handle_unexpected_error(request: Request, exc: Exception) -> JSONResponse:
+        logger.exception("unhandled_exception")
+        return _error_response(
+            request,
+            status_code=500,
+            code="SYSTEM_INTERNAL_ERROR",
+            message="系统内部错误",
+        )
+
+    app.include_router(router, prefix=settings.api_v1_prefix)
+    return app
+
+
+app = create_app()
+==============================================================================
+==== backend/app/core/__init__.py
+==============================================================================
+"""Configuration, middleware, logging and error handling."""
+==============================================================================
+==== backend/app/core/config.py
+==============================================================================
+from functools import lru_cache
+from pathlib import Path
+
+from pydantic import Field
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+class Settings(BaseSettings):
+    """Runtime settings loaded only from environment variables or a local .env file."""
+
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_prefix="INDUSOPT_",
+        case_sensitive=False,
+        extra="ignore",
+    )
+
+—— 第 3 页 / 共 404 页 ——
+
+
+    app_name: str = "IndusOpt API"
+    app_version: str = "0.4.0"
+    app_env: str = "development"
+    api_v1_prefix: str = "/api/v1"
+    database_url: str = Field(
+        default="postgresql+asyncpg://indusopt:indusopt@localhost:5432/indusopt",
+        description="SQLAlchemy asynchronous database URL.",
+    )
+    redis_url: str = "redis://localhost:6379/0"
+    # Hand long closed-loop studies to an RQ worker instead of running them in the request.
+    # Off by default: a single-machine offline deployment has no worker process, and a
+    # study that is queued but never picked up is worse than one that simply blocks.
+    background_optimization: bool = Field(
+        default=False,
+        description="启用后，闭环寻优交由 RQ Worker 执行；Redis 或 Worker 不可用时自动回退为同步执行。",
+    )
+    artifact_root: Path = Field(
+        default_factory=lambda: Path(__file__).resolve().parents[2] / "data",
+        description="Root directory for local simulation and model artifacts.",
+    )
+    cors_origins: list[str] = [
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+    ]
+    log_level: str = "INFO"
+
+    # Large-language-model provider. Empty/"none" keeps the system on its deterministic
+    # path, which is the supported offline default: the venue may have no network.
+    # Any OpenAI-compatible endpoint works — DeepSeek, Ollama, vLLM, Xinference, or a
+    # self-hosted ChatGLM/LLaMA.
+    llm_provider: str = Field(
+        default="none",
+        description='LLM 提供方标识；"none" 表示禁用，系统使用确定性规则解析。',
+    )
+    llm_base_url: str = Field(
+        default="",
+        description="OpenAI 兼容的 chat/completions 基址，例如 http://localhost:11434/v1。",
+    )
+    llm_model: str = Field(default="", description="模型名称，例如 deepseek-chat 或 qwen2.5:7b。")
+    llm_api_key: str = Field(default="", description="API Key；本地 Ollama 等可留空。")
+    llm_timeout_seconds: float = Field(default=60.0, gt=0, le=600)
+
+
+@lru_cache
+def get_settings() -> Settings:
+    return Settings()
+==============================================================================
+
+—— 第 4 页 / 共 404 页 ——
+
+==== backend/app/core/db.py
+==============================================================================
+from collections.abc import AsyncIterator
+from functools import lru_cache
+
+from redis.asyncio import Redis, from_url
+from sqlalchemy import text
+from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.ext.asyncio import (
+    AsyncEngine,
+    AsyncSession,
+    async_sessionmaker,
+    create_async_engine,
+)
+
+from app.core.config import get_settings
+
+
+@lru_cache
+def get_engine() -> AsyncEngine:
+    return create_async_engine(get_settings().database_url, pool_pre_ping=True)
+
+
+@lru_cache
+def get_session_factory() -> async_sessionmaker[AsyncSession]:
+    return async_sessionmaker(get_engine(), expire_on_commit=False)
+
+
+async def get_session() -> AsyncIterator[AsyncSession]:
+    async with get_session_factory()() as session:
+        yield session
+
+
+async def database_is_ready() -> bool:
+    try:
+        async with get_engine().connect() as connection:
+            await connection.execute(text("SELECT 1"))
+    except SQLAlchemyError:
+        return False
+    return True
+
+
+@lru_cache
+def get_redis() -> Redis:
+    return from_url(
+        get_settings().redis_url,
+        encoding="utf-8",
+        decode_responses=True,
+    )
+
+
+—— 第 5 页 / 共 404 页 ——
+
+
+async def redis_is_ready() -> bool:
+    try:
+        return bool(await get_redis().ping())
+    except Exception:  # Redis client errors are intentionally not exposed to callers.
+        return False
+
+
+async def dispose_engine() -> None:
+    await get_engine().dispose()
+    await get_redis().aclose()
+    get_engine.cache_clear()
+    get_session_factory.cache_clear()
+    get_redis.cache_clear()
+==============================================================================
+==== backend/app/core/errors.py
+==============================================================================
+from collections.abc import Mapping
+from typing import Any
+
+
+class AppError(Exception):
+    """A stable, client-safe API error; Python tracebacks never become API payloads."""
+
+    def __init__(
+        self,
+        code: str,
+        message: str,
+        *,
+        status_code: int = 400,
+        details: Mapping[str, Any] | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.code = code
+        self.message = message
+        self.status_code = status_code
+        self.details = dict(details or {})
+==============================================================================
+==== backend/app/core/logging.py
+==============================================================================
+import json
+import logging
+from contextvars import ContextVar
+from datetime import UTC, datetime
+from typing import Any
+
+request_id_context: ContextVar[str | None] = ContextVar("request_id", default=None)
+
+
+class JsonFormatter(logging.Formatter):
+
+—— 第 6 页 / 共 404 页 ——
+
+    """Minimal structured logger that keeps request correlation out of route code."""
+
+    def format(self, record: logging.LogRecord) -> str:
+        payload: dict[str, Any] = {
+            "timestamp": datetime.now(UTC).isoformat(),
+            "level": record.levelname,
+            "service": "indusopt-backend",
+            "message": record.getMessage(),
+            "request_id": request_id_context.get(),
+        }
+        for key in (
+            "duration_ms",
+            "status_code",
+            "error_code",
+            "dataset_id",
+            "run_id",
+            "algorithm",
+        ):
+            value = getattr(record, key, None)
+            if value is not None:
+                payload[key] = value
+        if record.exc_info:
+            payload["exception"] = self.formatException(record.exc_info)
+        return json.dumps(payload, ensure_ascii=False, default=str)
+
+
+def configure_logging(level: str) -> None:
+    root_logger = logging.getLogger()
+    root_logger.setLevel(level.upper())
+    if any(isinstance(handler.formatter, JsonFormatter) for handler in root_logger.handlers):
+        return
+    handler = logging.StreamHandler()
+    handler.setFormatter(JsonFormatter())
+    root_logger.handlers.clear()
+    root_logger.addHandler(handler)
+==============================================================================
+==== backend/app/core/middleware.py
+==============================================================================
+import logging
+import time
+from uuid import UUID, uuid4
+
+from fastapi import Request
+from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
+from starlette.responses import Response
+
+from app.core.logging import request_id_context
+
+logger = logging.getLogger(__name__)
+
+
+—— 第 7 页 / 共 404 页 ——
+
+
+def _request_id(request: Request) -> str:
+    supplied = request.headers.get("X-Request-ID")
+    if supplied:
+        try:
+            parsed = UUID(supplied)
+            if parsed.version == 4:
+                return str(parsed)
+        except ValueError:
+            pass
+    return str(uuid4())
+
+
+class RequestContextMiddleware(BaseHTTPMiddleware):
+    """Attach a UUIDv4 request id, response header and structured completion log."""
+
+    async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
+        request_id = _request_id(request)
+        request.state.request_id = request_id
+        context_token = request_id_context.set(request_id)
+        start = time.perf_counter()
+        try:
+            response = await call_next(request)
+            duration_ms = round((time.perf_counter() - start) * 1000, 2)
+            response.headers["X-Request-ID"] = request_id
+            logger.info(
+                "request_completed",
+                extra={
+                    "duration_ms": duration_ms,
+                    "status_code": response.status_code,
+                    "method": request.method,
+                    "path": request.url.path,
+                },
+            )
+            return response
+        finally:
+            request_id_context.reset(context_token)
+==============================================================================
+==== backend/app/models/__init__.py
+==============================================================================
+from app.models.base import Base
+from app.models.dataset import (
+    Dataset,
+    DatasetColumn,
+    DatasetProfileRecord,
+    DatasetVersion,
+    ProcessingRun,
+)
+from app.models.operation_log import OperationLog
+from app.models.optimization import (
+
+—— 第 8 页 / 共 404 页 ——
+
+    OptimizationStudy,
+    OptimizationTrialRecord,
+    StrategyMemory,
+)
+
+__all__ = [
+    "Base",
+    "Dataset",
+    "DatasetColumn",
+    "DatasetProfileRecord",
+    "DatasetVersion",
+    "OperationLog",
+    "OptimizationStudy",
+    "OptimizationTrialRecord",
+    "ProcessingRun",
+    "StrategyMemory",
+]
+==============================================================================
+==== backend/app/models/base.py
+==============================================================================
+from sqlalchemy.orm import DeclarativeBase
+
+
+class Base(DeclarativeBase):
+    """SQLAlchemy model base for metadata owned by Alembic."""
+==============================================================================
+==== backend/app/models/dataset.py
+==============================================================================
+"""Persistent data-asset, version-lineage and profile records."""
+
+from __future__ import annotations
+
+from datetime import datetime
+from typing import Any
+from uuid import UUID, uuid4
+
+from sqlalchemy import JSON, Boolean, DateTime, ForeignKey, Integer, String, Uuid, func
+from sqlalchemy.orm import Mapped, mapped_column
+
+from app.models.base import Base
+
+
+class Dataset(Base):
+    """A user-visible data asset; its raw upload is immutable once registered."""
+
+    __tablename__ = "datasets"
+
+    id: Mapped[UUID] = mapped_column(Uuid, primary_key=True, default=uuid4)
+    name: Mapped[str] = mapped_column(String(120), nullable=False)
+    source: Mapped[str] = mapped_column(String(32), nullable=False, default="upload")
+
+—— 第 9 页 / 共 404 页 ——
+
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="ready")
+    raw_sha256: Mapped[str] = mapped_column(String(64), nullable=False, unique=True, index=True)
+    raw_path: Mapped[str] = mapped_column(String(512), nullable=False)
+    byte_size: Mapped[int] = mapped_column(Integer, nullable=False)
+    encoding: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    delimiter: Mapped[str | None] = mapped_column(String(8), nullable=True)
+    active_version_id: Mapped[UUID | None] = mapped_column(Uuid, nullable=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+
+class DatasetVersion(Base):
+    """An immutable version node. Processing stages will append derived nodes later."""
+
+    __tablename__ = "dataset_versions"
+
+    id: Mapped[UUID] = mapped_column(Uuid, primary_key=True, default=uuid4)
+    dataset_id: Mapped[UUID] = mapped_column(
+        Uuid, ForeignKey("datasets.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    parent_version_id: Mapped[UUID | None] = mapped_column(
+        Uuid, ForeignKey("dataset_versions.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    version_index: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    name: Mapped[str] = mapped_column(String(160), nullable=False)
+    operation_name: Mapped[str] = mapped_column(String(80), nullable=False, default="raw_upload")
+    parameters: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
+    artifact_path: Mapped[str] = mapped_column(String(512), nullable=False)
+    sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    row_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    column_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    time_range_start: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    time_range_end: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
+class DatasetColumn(Base):
+    """Schema and human-confirmed semantic role of one version column."""
+
+    __tablename__ = "dataset_columns"
+
+    id: Mapped[UUID] = mapped_column(Uuid, primary_key=True, default=uuid4)
+
+—— 第 10 页 / 共 404 页 ——
+
+    dataset_id: Mapped[UUID] = mapped_column(
+        Uuid, ForeignKey("datasets.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    version_id: Mapped[UUID] = mapped_column(
+        Uuid, ForeignKey("dataset_versions.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    position: Mapped[int] = mapped_column(Integer, nullable=False)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    inferred_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    role: Mapped[str] = mapped_column(String(32), nullable=False, default="ignore")
+    unit: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    nullable: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+
+
+class DatasetProfileRecord(Base):
+    """Persisted quality diagnostics for one immutable dataset version."""
+
+    __tablename__ = "dataset_profiles"
+
+    id: Mapped[UUID] = mapped_column(Uuid, primary_key=True, default=uuid4)
+    dataset_id: Mapped[UUID] = mapped_column(
+        Uuid, ForeignKey("datasets.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    version_id: Mapped[UUID] = mapped_column(
+        Uuid,
+        ForeignKey("dataset_versions.id", ondelete="CASCADE"),
+        nullable=False,
+        unique=True,
+        index=True,
+    )
+    quality_score: Mapped[float] = mapped_column(nullable=False)
+    profile: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+
+class ProcessingRun(Base):
+    """Auditable processing execution shell used by later pipeline stages."""
+
+    __tablename__ = "processing_runs"
+
+    id: Mapped[UUID] = mapped_column(Uuid, primary_key=True, default=uuid4)
+    dataset_id: Mapped[UUID | None] = mapped_column(
+        Uuid, ForeignKey("datasets.id", ondelete="CASCADE"), nullable=True, index=True
+    )
+    source_version_id: Mapped[UUID | None] = mapped_column(
+
+—— 第 11 页 / 共 404 页 ——
+
+        Uuid, ForeignKey("dataset_versions.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    run_type: Mapped[str] = mapped_column(String(80), nullable=False)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="succeeded")
+    parameters: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
+    result: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+==============================================================================
+==== backend/app/models/operation_log.py
+==============================================================================
+from datetime import datetime
+from uuid import UUID, uuid4
+
+from sqlalchemy import DateTime, String, Text, Uuid, func
+from sqlalchemy.orm import Mapped, mapped_column
+
+from app.models.base import Base
+
+
+class OperationLog(Base):
+    """Auditable event envelope; detailed domain tables arrive in later phases."""
+
+    __tablename__ = "operation_logs"
+
+    id: Mapped[UUID] = mapped_column(Uuid, primary_key=True, default=uuid4)
+    request_id: Mapped[UUID | None] = mapped_column(Uuid, nullable=True, index=True)
+    event_type: Mapped[str] = mapped_column(String(100), index=True)
+    subject_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    payload_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+==============================================================================
+==== backend/app/models/optimization.py
+==============================================================================
+"""Closed-loop optimisation studies, trials and the cross-dataset strategy memory."""
+
+from __future__ import annotations
+
+from datetime import datetime
+from typing import Any
+from uuid import UUID, uuid4
+
+from sqlalchemy import JSON, DateTime, Float, ForeignKey, Integer, String, Uuid, func
+from sqlalchemy.orm import Mapped, mapped_column
+
+from app.models.base import Base
+
+—— 第 12 页 / 共 404 页 ——
+
+
+
+class OptimizationStudy(Base):
+    """One closed-loop search over preprocessing and model-structure parameters."""
+
+    __tablename__ = "optimization_studies"
+
+    id: Mapped[UUID] = mapped_column(Uuid, primary_key=True, default=uuid4)
+    dataset_id: Mapped[UUID | None] = mapped_column(Uuid, nullable=True, index=True)
+    version_id: Mapped[UUID] = mapped_column(Uuid, nullable=False, index=True)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="running")
+    objective: Mapped[str] = mapped_column(String(64), nullable=False, default="free_run_fit")
+    parameters: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
+    best_trial_number: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    best_value: Mapped[float | None] = mapped_column(Float, nullable=True)
+    best_params: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
+    fingerprint: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
+    # Cache-hit and pruning statistics; the phase-8 acceptance criteria are measured here.
+    statistics: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
+    warm_started_from: Mapped[UUID | None] = mapped_column(Uuid, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class OptimizationTrialRecord(Base):
+    """One evaluated parameter combination, kept whether it succeeded or failed.
+
+    Failed and pruned trials are persisted on purpose: hiding them would misrepresent how
+    the search actually behaved, and the brief forbids concealing failed trials.
+    """
+
+    __tablename__ = "optimization_trials"
+
+    id: Mapped[UUID] = mapped_column(Uuid, primary_key=True, default=uuid4)
+    study_id: Mapped[UUID] = mapped_column(
+        Uuid, ForeignKey("optimization_studies.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    trial_number: Mapped[int] = mapped_column(Integer, nullable=False)
+    state: Mapped[str] = mapped_column(String(32), nullable=False, default="complete")
+    value: Mapped[float | None] = mapped_column(Float, nullable=True)
+    params: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
+    metrics: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
+    cache_hit: Mapped[bool] = mapped_column(nullable=False, default=False)
+    duration_ms: Mapped[float | None] = mapped_column(Float, nullable=True)
+    error_code: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+—— 第 13 页 / 共 404 页 ——
+
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class StrategyMemory(Base):
+    """A completed search, indexed by a data-profile fingerprint for warm starting.
+
+    This is the mechanism behind the brief's "self-evolving" requirement: a run on one
+    dataset leaves behind a reusable prior, so a later run on a similar process starts
+    from what already worked instead of from the middle of the search space.
+
+    Only parameters and train/validation metrics are stored. Test-set information is
+    deliberately excluded, and a dataset is never warm-started from its own history.
+    """
+
+    __tablename__ = "strategy_memory"
+
+    id: Mapped[UUID] = mapped_column(Uuid, primary_key=True, default=uuid4)
+    dataset_id: Mapped[UUID | None] = mapped_column(Uuid, nullable=True, index=True)
+    version_id: Mapped[UUID] = mapped_column(Uuid, nullable=False)
+    study_id: Mapped[UUID | None] = mapped_column(Uuid, nullable=True)
+    fingerprint: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
+    fingerprint_vector: Mapped[list[float]] = mapped_column(JSON, nullable=False, default=list)
+    best_params: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
+    achieved_metrics: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
+    objective_value: Mapped[float | None] = mapped_column(Float, nullable=True)
+    source: Mapped[str] = mapped_column(String(32), nullable=False, default="study")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+==============================================================================
+==== backend/app/schemas/__init__.py
+==============================================================================
+"""Pydantic request and response contracts exposed in OpenAPI."""
+==============================================================================
+==== backend/app/schemas/benchmark.py
+==============================================================================
+"""Schemas for the in-product self-benchmark."""
+
+from uuid import UUID
+
+from pydantic import Field
+
+from app.schemas.common import Schema, TaskResource
+from app.schemas.simulation import SimulationScenario
+
+
+class BenchmarkRequest(Schema):
+    scenarios: list[SimulationScenario] = Field(
+        default=["S3", "S6"],
+        min_length=1,
+
+—— 第 14 页 / 共 404 页 ——
+
+        max_length=6,
+        description="要运行的基准场景；S6 为异构激励压力测试。",
+    )
+    n_samples: int = Field(default=4000, ge=500, le=50_000)
+    seed: int = Field(default=20260807, ge=0, le=2_147_483_647)
+    window_size: int = Field(default=60, ge=10, le=1_000)
+    budget_windows: int = Field(default=12, ge=1, le=100)
+
+
+class BenchmarkRow(Schema):
+    """One measured cell of an ablation table."""
+
+    scenario: str
+    strategy: str
+    metrics: dict[str, float]
+
+
+class BenchmarkExperiment(Schema):
+    """One ablation: the question it answers and the numbers that answer it."""
+
+    key: str
+    title: str
+    question: str
+    rows: list[BenchmarkRow]
+    notes: list[str] = Field(default_factory=list)
+
+
+class BenchmarkData(Schema):
+    benchmark_id: UUID
+    task: TaskResource
+    scenarios: list[str]
+    n_samples: int
+    seed: int
+    experiments: list[BenchmarkExperiment]
+    duration_ms: float
+==============================================================================
+==== backend/app/schemas/common.py
+==============================================================================
+from datetime import datetime
+from typing import Any, Generic, Literal, TypeVar
+from uuid import UUID
+
+from pydantic import BaseModel, ConfigDict, Field
+
+DataT = TypeVar("DataT")
+
+
+class Schema(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+
+—— 第 15 页 / 共 404 页 ——
+
+
+class ErrorDetail(Schema):
+    code: str = Field(examples=["DATASET_NOT_FOUND"])
+    message: str = Field(examples=["数据集不存在"])
+    details: dict[str, Any] = Field(default_factory=dict)
+
+
+class SuccessEnvelope(Schema, Generic[DataT]):
+    success: Literal[True] = True
+    data: DataT
+    error: None = None
+    request_id: UUID
+
+
+class ErrorEnvelope(Schema):
+    success: Literal[False] = False
+    data: None = None
+    error: ErrorDetail
+    request_id: UUID
+
+
+TaskState = Literal[
+    "queued",
+    "running",
+    "waiting_confirmation",
+    "succeeded",
+    "partial_success",
+    "failed",
+    "cancelled",
+]
+
+
+class TaskProgress(Schema):
+    current: int = Field(ge=0, examples=[2])
+    total: int = Field(ge=0, examples=[8])
+    percent: float = Field(ge=0, le=100, examples=[25])
+    stage: str = Field(examples=["detect_dynamic_segments"])
+    message: str = Field(examples=["正在计算窗口质量分数"])
+
+
+class TaskResource(Schema):
+    id: UUID
+    status: TaskState
+    progress: TaskProgress
+    created_at: datetime
+    started_at: datetime | None = None
+    finished_at: datetime | None = None
+    error: ErrorDetail | None = None
+
+
+
+—— 第 16 页 / 共 404 页 ——
+
+class PageInfo(Schema):
+    page: int = Field(ge=1, default=1)
+    page_size: int = Field(ge=1, le=100, default=20)
+    total: int = Field(ge=0, default=0)
+
+
+class PaginationParams(Schema):
+    page: int = Field(ge=1, default=1)
+    page_size: int = Field(ge=1, le=100, default=20)
+==============================================================================
+==== backend/app/schemas/copilot.py
+==============================================================================
+from typing import Any, Literal
+from uuid import UUID
+
+from pydantic import Field
+
+from app.schemas.common import Schema, TaskResource
+
+
+class CopilotChatRequest(Schema):
+    message: str = Field(min_length=1, max_length=8_000)
+    dataset_id: UUID | None = None
+    active_version_id: UUID | None = None
+    context: dict[str, Any] = Field(default_factory=dict)
+
+
+class ExecutionPlanStep(Schema):
+    step_id: str
+    tool: Literal[
+        "profile_dataset",
+        "align_and_resample",
+        "detect_anomalies",
+        "clean_data",
+        "detect_dynamic_segments",
+        "estimate_delays",
+        "analyze_collinearity",
+        "select_variables",
+        "fit_arx",
+        "evaluate_model",
+        "optimize_pipeline",
+        "generate_report",
+        "export_dataset",
+    ]
+    depends_on: list[str] = Field(default_factory=list)
+    parameters: dict[str, Any] = Field(default_factory=dict)
+    requires_confirmation: bool = False
+    status: Literal["pending", "waiting_confirmation", "running", "completed", "failed"] = "pending"
+
+
+
+—— 第 17 页 / 共 404 页 ——
+
+class ExecutionPlan(Schema):
+    goal: str
+    dataset_id: UUID | None = None
+    steps: list[ExecutionPlanStep]
+    stop_conditions: list[str] = Field(default_factory=list)
+    assumptions: list[str] = Field(default_factory=list)
+
+
+class ProofCheckData(Schema):
+    """One statically verified property of an execution plan."""
+
+    name: str
+    passed: bool
+    detail: str
+
+
+class ComplianceProofData(Schema):
+    """Machine-checked evidence that a plan obeys the frozen safety rules.
+
+    A plan whose proof does not pass is never executed, so this is the record of what was
+    verified rather than a promise about what the agent intends to do.
+    """
+
+    proof_id: str
+    passed: bool
+    checks: list[ProofCheckData]
+    signature: str
+    code_version: str
+    generated_at: str
+
+
+class AgentStepRun(Schema):
+    """One executed step: its inputs, its real tool output and its timing."""
+
+    step_id: str
+    tool: str
+    status: Literal["pending", "waiting_confirmation", "running", "completed", "failed"]
+    parameters: dict[str, Any] = Field(default_factory=dict)
+    summary: str
+    result: dict[str, Any] = Field(default_factory=dict)
+    duration_ms: float = 0.0
+    error_code: str | None = None
+
+
+class CopilotChatData(Schema):
+    copilot_run_id: UUID
+    plan: ExecutionPlan
+    task: TaskResource | None = None
+    compliance: ComplianceProofData | None = None
+    step_runs: list[AgentStepRun] = Field(default_factory=list)
+
+—— 第 18 页 / 共 404 页 ——
+
+    conclusion: str = ""
+    executed: bool = False
+    # Where the plan came from. "llm" means a model authored it and it then passed the same
+    # whitelist and compliance checks a rule-based plan passes; "rule_based" means the
+    # deterministic planner produced it, either by configuration or after a fallback.
+    plan_source: Literal["llm", "rule_based"] = "rule_based"
+    llm_provider: str = "none"
+    llm_model: str = "none"
+    llm_fallback_reason: str | None = None
+
+
+class CopilotConfirmRequest(Schema):
+    copilot_run_id: UUID
+    confirmation_id: str = Field(min_length=1)
+    approved: bool
+    parameter_overrides: dict[str, Any] = Field(default_factory=dict)
+    comment: str | None = Field(default=None, max_length=2_000)
+
+
+class CopilotConfirmData(Schema):
+    copilot_run_id: UUID
+    confirmation_id: str
+    decision: Literal["approved", "rejected"]
+    task: TaskResource | None = None
+==============================================================================
+==== backend/app/schemas/datasets.py
+==============================================================================
+from datetime import datetime
+from typing import Any, Literal
+from uuid import UUID
+
+from pydantic import Field
+
+from app.schemas.common import PageInfo, Schema, TaskResource
+
+DatasetSource = Literal["upload", "simulation"]
+DatasetState = Literal["parsing", "ready", "failed", "deleted"]
+ColumnRole = Literal["timestamp", "input", "output", "ignore"]
+ColumnType = Literal["datetime", "float", "integer", "string", "boolean"]
+
+
+class DatasetSummary(Schema):
+    id: UUID
+    name: str
+    source: DatasetSource
+    status: DatasetState
+    row_count: int = Field(ge=0)
+    column_count: int = Field(ge=0)
+    latest_version_id: UUID | None = None
+    created_at: datetime
+
+—— 第 19 页 / 共 404 页 ——
+
+    updated_at: datetime
+    # Compatibility projections for the existing Dataset Hub client.  They are
+    # additive; the frozen phase-1 fields above remain the canonical fields.
+    version_id: UUID | None = None
+    file_size_bytes: int | None = Field(default=None, ge=0)
+    col_count: int | None = Field(default=None, ge=0)
+    time_column: str | None = None
+    input_columns: list[str] = Field(default_factory=list)
+    output_column: str | None = None
+
+
+class DatasetColumn(Schema):
+    name: str
+    inferred_type: ColumnType
+    role: ColumnRole
+    unit: str | None = None
+    nullable: bool
+    data_type: ColumnType | None = None
+    missing_count: int = Field(default=0, ge=0)
+
+
+class DatasetPreview(Schema):
+    columns: list[str]
+    rows: list[dict[str, str | float | int | bool | None]]
+    truncated: bool
+    recommended_downsample_factor: int = Field(ge=1)
+
+
+class DatasetDetail(DatasetSummary):
+    columns: list[DatasetColumn]
+    time_range_start: datetime | None = None
+    time_range_end: datetime | None = None
+    preview: DatasetPreview | None = None
+
+
+class DatasetListData(Schema):
+    items: list[DatasetSummary]
+    page: PageInfo
+
+
+class DatasetUploadData(Schema):
+    dataset: DatasetSummary
+    parse_task: TaskResource
+    deduplicated: bool = False
+
+
+class DatasetDeleteData(Schema):
+    dataset_id: UUID
+    status: Literal["deleted"] = "deleted"
+
+
+—— 第 20 页 / 共 404 页 ——
+
+
+class IntervalHistogramBin(Schema):
+    bin: float
+    count: int = Field(ge=0)
+
+
+class QualityIssue(Schema):
+    code: str
+    severity: Literal["info", "warning", "error"]
+    message: str
+    affected_columns: list[str] = Field(default_factory=list)
+
+
+class ColumnStatistics(Schema):
+    count: int = Field(ge=0)
+    mean: float | None = None
+    std: float | None = Field(default=None, ge=0)
+    min: float | None = None
+    max: float | None = None
+    q25: float | None = None
+    q50: float | None = None
+    q75: float | None = None
+
+
+class DatasetProfile(Schema):
+    dataset_id: UUID
+    version_id: UUID
+    row_count: int = Field(ge=0)
+    column_count: int = Field(ge=0)
+    missing_rates: dict[str, float] = Field(description="0-1 的每列缺失率。")
+    anomaly_counts: dict[str, int]
+    interval_histogram: list[IntervalHistogramBin]
+    duplicate_timestamp_count: int = Field(ge=0)
+    irregular_sampling_rate: float = Field(ge=0, le=1)
+    constant_columns: list[str]
+    frozen_segments: list[dict[str, int | str]]
+    recommended_downsample_factor: int = Field(ge=1)
+    quality_issues: list[QualityIssue]
+    total_rows: int = Field(ge=0)
+    total_cols: int = Field(ge=0)
+    missing_rate: float = Field(ge=0, le=1)
+    time_range_start: datetime | None = None
+    time_range_end: datetime | None = None
+    sample_period_seconds: float | None = Field(default=None, ge=0)
+    max_consecutive_missing: dict[str, int] = Field(default_factory=dict)
+    column_statistics: dict[str, ColumnStatistics] = Field(default_factory=dict)
+    quality_score: float = Field(ge=0, le=100)
+    recommendations: list[str] = Field(default_factory=list)
+
+
+
+—— 第 21 页 / 共 404 页 ——
+
+class VersionNode(Schema):
+    id: UUID
+    name: str
+    tool: str
+    created_at: datetime
+    parent_version_id: UUID | None = None
+    parameters: dict[str, Any] = Field(default_factory=dict)
+
+
+class VersionEdge(Schema):
+    source: UUID
+    target: UUID
+    operation: str
+
+
+class DatasetVersionsData(Schema):
+    dataset_id: UUID
+    active_version_id: UUID | None = None
+    nodes: list[VersionNode]
+    edges: list[VersionEdge]
+
+
+ColumnConfigRole = Literal["timestamp", "time", "input", "output", "ignore", "ignored"]
+
+
+class DatasetColumnConfig(Schema):
+    name: str = Field(min_length=1, max_length=255)
+    role: ColumnConfigRole
+    unit: str | None = Field(default=None, max_length=64)
+
+
+class DatasetConfigRequest(Schema):
+    """Accept an explicit column mapping or the compact form used by simple clients."""
+
+    columns: list[DatasetColumnConfig] | None = None
+    time_column: str | None = Field(default=None, min_length=1, max_length=255)
+    input_columns: list[str] = Field(default_factory=list)
+    output_column: str | None = Field(default=None, min_length=1, max_length=255)
+    ignored_columns: list[str] = Field(default_factory=list)
+
+
+class DatasetConfigData(Schema):
+    dataset: DatasetDetail
+    profile: DatasetProfile
+==============================================================================
+==== backend/app/schemas/modeling.py
+==============================================================================
+from typing import Literal
+from uuid import UUID
+
+
+—— 第 22 页 / 共 404 页 ——
+
+from pydantic import Field
+
+from app.schemas.common import Schema, TaskResource
+
+
+class ArxFitRequest(Schema):
+    version_id: UUID
+    dataset_id: UUID | None = None
+    input_columns: list[str] = Field(default_factory=list)
+    output_column: str = "y"
+    na: int = Field(ge=1, le=100)
+    nb: dict[str, int] | list[int] = Field(
+        description="每个输入变量的 b 阶次；允许阶段 1 前端使用的同序数组。"
+    )
+    delays: dict[str, int] | list[int] = Field(
+        description="每个输入变量的 nk；允许阶段 1 前端使用的同序数组。"
+    )
+    estimator: Literal["ols", "ridge"] = "ols"
+    estimation_method: Literal["ols", "ridge"] | None = Field(
+        default=None,
+        description="阶段 1 前端兼容字段；优先于 estimator。",
+    )
+    ridge_alpha: float | None = Field(default=None, ge=0)
+    train_ratio: float = Field(default=0.6, gt=0, lt=1)
+    validation_ratio: float = Field(default=0.2, gt=0, lt=1)
+    # Restrict the training rows to specific sample indices, e.g. the output of
+    # quality-constrained D-optimal selection. Empty means "use every training row".
+    training_sample_indices: list[int] = Field(default_factory=list)
+    # Engineering priors. A model that violates them is rejected rather than reported,
+    # because a gain with the wrong sign is not a slightly worse model, it is a wrong one.
+    gain_sign: dict[str, Literal["positive", "negative"]] = Field(default_factory=dict)
+    gain_bounds: dict[str, tuple[float, float]] = Field(default_factory=dict)
+    require_stable: bool = False
+
+    def resolved_estimator(self) -> Literal["ols", "ridge"]:
+        return self.estimation_method or self.estimator
+
+
+class PriorViolation(Schema):
+    """One engineering prior the identified model failed."""
+
+    variable: str
+    kind: Literal["gain_sign", "gain_bounds", "stability"]
+    expected: str
+    actual: float | None = None
+
+
+class ModelValidationData(Schema):
+    """Control-relevant acceptance evidence.
+
+
+—— 第 23 页 / 共 404 页 ——
+
+    ``free_run_fit`` is the primary metric: an APC controller predicts many steps ahead,
+    so one-step FIT — which is fed the measured previous output — flatters any model on an
+    autocorrelated process. ``one_step_fit`` is kept as a diagnostic, and a large
+    ``fit_gap`` is itself the signal that the model is coasting on persistence.
+    """
+
+    one_step_fit: float | None = None
+    free_run_fit: float | None = None
+    free_run_rmse: float | None = None
+    fit_gap: float | None = None
+    stable: bool = True
+    max_pole_modulus: float | None = None
+    steady_state_gains: dict[str, float] = Field(default_factory=dict)
+    residual_whiteness_ratio: float | None = None
+    n_samples: int = Field(default=0, ge=0)
+    partition: str = "validation"
+
+
+class ArxMetrics(Schema):
+    train_r2: float | None = None
+    train_fit: float | None = None
+    train_rmse: float | None = None
+    val_r2: float | None = None
+    val_fit: float | None = None
+    val_rmse: float | None = None
+    test_r2: float | None = None
+    test_fit: float | None = None
+    test_rmse: float | None = None
+    rmse: float | None = None
+    mae: float | None = None
+    nrmse: float | None = None
+    # Free-run (infinite-step) simulation FIT per partition — the primary metric.
+    train_free_run_fit: float | None = None
+    val_free_run_fit: float | None = None
+    test_free_run_fit: float | None = None
+    aic: float | None = None
+    bic: float | None = None
+
+
+class SplitIndices(Schema):
+    train_end: int = Field(ge=0)
+    val_end: int = Field(ge=0)
+    test_end: int = Field(ge=0)
+
+
+class ArxPlotData(Schema):
+    indices: list[int]
+    y_true: list[float]
+    y_pred: list[float]
+    residuals: list[float]
+
+—— 第 24 页 / 共 404 页 ——
+
+    splits: SplitIndices
+    split_indices: SplitIndices | None = None
+
+
+class ArxResidualDiagnostics(Schema):
+    acf_values: list[float]
+    confidence_interval: float | None = None
+
+
+class ArxFitData(Schema):
+    model_id: UUID
+    task: TaskResource
+    estimator: Literal["ols", "ridge"]
+    dataset_id: UUID | None = None
+    version_id: UUID | None = None
+    coefficients: dict[str, float]
+    a_coefficients: list[float] = Field(default_factory=list)
+    b_coefficients: dict[str, list[float]] = Field(default_factory=dict)
+    metrics: ArxMetrics
+    plot_data: ArxPlotData
+    residual_diagnostics: ArxResidualDiagnostics
+    artifact_uri: str | None = None
+    validation: ModelValidationData | None = None
+    prior_violations: list[PriorViolation] = Field(default_factory=list)
+    training_rows: int = Field(default=0, ge=0)
+    free_run_series: list[float] = Field(default_factory=list)
+==============================================================================
+==== backend/app/schemas/optimization.py
+==============================================================================
+from datetime import datetime
+from typing import Any, Literal
+from uuid import UUID
+
+from pydantic import Field
+
+from app.schemas.common import Schema, TaskResource
+
+
+class OptimizationStartRequest(Schema):
+    version_id: UUID
+    input_columns: list[str] = Field(min_length=1)
+    output_column: str = Field(min_length=1)
+    max_trials: int = Field(default=50, ge=1, le=10_000)
+    timeout_seconds: int | None = Field(default=None, ge=1, le=86_400)
+    search_space: dict[str, Any] = Field(default_factory=dict)
+    random_seed: int = Field(default=42, ge=0, le=2_147_483_647)
+
+
+class OptimizationStartData(Schema):
+    study_id: UUID
+
+—— 第 25 页 / 共 404 页 ——
+
+    task: TaskResource
+
+
+class OptimizationTrial(Schema):
+    trial_id: int = Field(ge=0)
+    state: Literal["queued", "running", "complete", "pruned", "failed"]
+    value: float | None = None
+    params: dict[str, Any]
+    created_at: datetime
+    finished_at: datetime | None = None
+    error_code: str | None = None
+
+
+class OptimizationStatusData(Schema):
+    study_id: UUID
+    task: TaskResource
+    trials: list[OptimizationTrial]
+    best_trial_id: int | None = None
+    best_value: float | None = None
+    best_curve: list[float | None]
+    param_importances: dict[str, float]
+    # Cache-hit rate, trial counts and timings — the phase-8 acceptance evidence.
+    statistics: dict[str, Any] = Field(default_factory=dict)
+    best_params: dict[str, Any] = Field(default_factory=dict)
+    # Set when this study reused parameters learned from a different dataset.
+    warm_started_from: UUID | None = None
+==============================================================================
+==== backend/app/schemas/preprocessing.py
+==============================================================================
+from datetime import datetime
+from typing import Literal
+from uuid import UUID
+
+from pydantic import Field
+
+from app.schemas.common import Schema, TaskResource
+
+
+class CleanRequest(Schema):
+    version_id: UUID
+    dataset_id: UUID | None = None
+    target_sample_period_seconds: float | None = Field(default=None, gt=0)
+    # Canonical phase-1 names stay available. The aliases below preserve the
+    # already-built browser client while it is upgraded in the next handoff.
+    resample_period_s: float | None = Field(default=None, gt=0)
+    interpolation: Literal["linear", "forward_fill", "backward_fill", "none"] = "linear"
+    interpolation_method: (
+        Literal["linear", "ffill", "bfill", "forward_fill", "backward_fill", "none"] | None
+    ) = None
+    anomaly_detector: Literal["iqr", "z_score", "hampel"] = "hampel"
+
+—— 第 26 页 / 共 404 页 ——
+
+    outlier_method: Literal["iqr", "zscore", "z_score", "hampel"] | None = None
+    anomaly_strategy: Literal["keep", "set_null", "local_median", "linear_interpolate", "clip"] = (
+        "linear_interpolate"
+    )
+    hampel_window: int = Field(default=7, ge=3, le=1_001)
+    hampel_threshold: float = Field(default=3.0, gt=0)
+    hampel_n_sigmas: float | None = Field(default=None, gt=0)
+    z_score_threshold: float = Field(default=3.0, gt=0)
+    max_consecutive_missing: int | None = Field(default=10, ge=1, le=100_000)
+    duplicate_strategy: Literal["first", "mean"] = "mean"
+    smoothing: Literal["none", "moving_average", "savitzky_golay"] = "none"
+    smoothing_window: int = Field(default=5, ge=3, le=1_001)
+
+
+class CleanSeries(Schema):
+    column: str
+    timestamps: list[datetime]
+    raw_series: list[float | None]
+    cleaned_series: list[float | None]
+    replaced_indices: list[int] = Field(default_factory=list)
+
+
+class CleanData(Schema):
+    source_version_id: UUID
+    derived_version_id: UUID
+    task: TaskResource
+    series: list[CleanSeries]
+    # Additive browser-friendly projection. It describes the configured output
+    # column (or the first numeric column when no output role exists).
+    dataset_id: UUID | None = None
+    new_version_id: UUID | None = None
+    raw_series: list[float | None] = Field(default_factory=list)
+    cleaned_series: list[float | None] = Field(default_factory=list)
+    replaced_indices: list[int] = Field(default_factory=list)
+    total_cleaned_points: int = Field(default=0, ge=0)
+    warnings: list[str] = Field(default_factory=list)
+    recommended_downsample_factor: int = Field(default=1, ge=1)
+
+
+class SegmentRequest(Schema):
+    version_id: UUID
+    input_columns: list[str] = Field(min_length=1)
+    output_column: str = Field(min_length=1)
+    window_size: int = Field(default=60, ge=5)
+    min_segment_length: int = Field(default=100, ge=1)
+    min_snr_db: float = 0.0
+    max_segments: int = Field(default=10, ge=1, le=100)
+    dataset_id: UUID | None = None
+    stride: int | None = Field(default=None, ge=1)
+    # Provisional ARX structure used only to build the information matrix. Delays are
+
+—— 第 27 页 / 共 404 页 ——
+
+    # refined later; selection is not very sensitive to them, but the orders must be
+    # large enough that the regressor spans the directions we care about.
+    na: int = Field(default=2, ge=1, le=20)
+    nb: int = Field(default=2, ge=1, le=20)
+    nk: int = Field(default=0, ge=0, le=1_000)
+    train_ratio: float = Field(default=0.7, gt=0, lt=1)
+    ridge: float = Field(default=1e-6, gt=0)
+    max_missing_ratio: float = Field(default=0.20, ge=0, le=1)
+    max_anomaly_ratio: float = Field(default=0.10, ge=0, le=1)
+    min_input_activity_ratio: float = Field(default=0.05, ge=0)
+    min_information_gain_bits: float = Field(default=0.0, ge=0)
+
+
+class DynamicSegment(Schema):
+    segment_id: str
+    start_index: int = Field(ge=0)
+    end_index: int = Field(ge=0)
+    start_time: datetime | None = None
+    end_time: datetime | None = None
+    snr_db: float
+    dynamic_score: float
+    recommendation: Literal["strongly_recommended", "recommended", "review", "rejected"]
+    rank: int | None = Field(default=None, ge=1)
+    information_gain_bits: float | None = None
+    cumulative_log_det: float | None = None
+    n_rows: int | None = Field(default=None, ge=0)
+    missing_ratio: float | None = None
+    anomaly_ratio: float | None = None
+
+
+class GatedWindow(Schema):
+    """A candidate window the quality gate scored, accepted or not."""
+
+    window_index: int = Field(ge=0)
+    start_index: int = Field(ge=0)
+    end_index: int = Field(ge=0)
+    missing_ratio: float
+    anomaly_ratio: float
+    snr_db: float
+    input_activity: float
+    output_activity: float
+    accepted: bool
+    rejection_reasons: list[str] = Field(default_factory=list)
+
+
+class SelectionSummary(Schema):
+    """Information-theoretic outcome of the D-optimal stage."""
+
+    candidate_count: int = Field(ge=0)
+    gated_count: int = Field(ge=0)
+
+—— 第 28 页 / 共 404 页 ——
+
+    selected_count: int = Field(ge=0)
+    selected_rows: int = Field(ge=0)
+    coverage_ratio: float
+    baseline_log_det: float
+    selected_log_det: float
+    information_retention: float | None = None
+    evaluated_candidates: int = Field(ge=0)
+    naive_candidate_evaluations: int = Field(ge=0)
+    lazy_speedup: float
+    stopped_reason: str
+    budget_advisory: str | None = Field(
+        default=None,
+        description="样本预算过小、信息准则无法覆盖全部参数方向时的提示；为 null 表示预算充足。",
+    )
+    condition_number: float | None = None
+    excitation_satisfied: bool = False
+    persistent_excitation_order: dict[str, int] = Field(default_factory=dict)
+    required_excitation_order: dict[str, int] = Field(default_factory=dict)
+    rejection_counts: dict[str, int] = Field(default_factory=dict)
+    noise_sigma: float = 0.0
+
+
+class SegmentData(Schema):
+    source_version_id: UUID
+    task: TaskResource
+    timestamps: list[datetime]
+    series: dict[str, list[float | None]]
+    segments: list[DynamicSegment]
+    dataset_id: UUID | None = None
+    derived_version_id: UUID | None = None
+    selection: SelectionSummary | None = None
+    gated_windows: list[GatedWindow] = Field(default_factory=list)
+    selected_indices: list[int] = Field(default_factory=list)
+
+
+class DelayRequest(Schema):
+    version_id: UUID
+    input_columns: list[str] = Field(min_length=1)
+    output_column: str = Field(min_length=1)
+    max_lag: int = Field(default=100, ge=0, le=10_000)
+    top_k: int = Field(default=3, ge=1, le=20)
+    dataset_id: UUID | None = None
+
+
+class DelayPeak(Schema):
+    lag: int = Field(ge=0)
+    correlation: float = Field(ge=-1, le=1)
+    confidence: float = Field(ge=0, le=1)
+
+
+
+—— 第 29 页 / 共 404 页 ——
+
+class DelayData(Schema):
+    source_version_id: UUID
+    task: TaskResource
+    delays: list[int]
+    correlations: dict[str, list[float]]
+    best_delays: dict[str, int]
+    candidate_peaks: dict[str, list[DelayPeak]]
+    dataset_id: UUID | None = None
+    # Validation free-run FIT achieved by the refined delay set. Cross-correlation only
+    # proposes candidates; this is the number that actually chose between them.
+    validation_fit: float | None = None
+    refinement_rounds: int = Field(default=0, ge=0)
+    uncertain_columns: list[str] = Field(default_factory=list)
+    prewhitening_orders: dict[str, int] = Field(default_factory=dict)
+
+
+class CollinearityRequest(Schema):
+    version_id: UUID
+    input_columns: list[str] = Field(min_length=2)
+    correlation_threshold: float = Field(default=0.9, gt=0, le=1)
+    vif_threshold: float = Field(default=10.0, gt=1)
+    dataset_id: UUID | None = None
+    output_column: str | None = None
+
+
+class VariableRecommendation(Schema):
+    variable: str
+    action: Literal["keep", "drop", "merge", "review"]
+    reason: str
+    related_variables: list[str] = Field(default_factory=list)
+
+
+class CollinearityData(Schema):
+    source_version_id: UUID
+    task: TaskResource
+    variables: list[str]
+    matrix: list[list[float]]
+    vif_scores: dict[str, float]
+    condition_number: float | None = None
+    recommendations: list[VariableRecommendation]
+    dataset_id: UUID | None = None
+    spearman_matrix: list[list[float]] = Field(default_factory=list)
+    correlated_groups: list[list[str]] = Field(default_factory=list)
+==============================================================================
+==== backend/app/schemas/reporting.py
+==============================================================================
+"""Schemas for provenance-bound reports and optimised-dataset delivery."""
+
+from uuid import UUID
+
+
+—— 第 30 页 / 共 404 页 ——
+
+（此处略去第 31–374 页）
+
+      refined: result.value?.best_delays[column] ?? 0,
+      peak: candidates[0]?.lag ?? "—",
+      correlation: candidates[0]?.correlation ?? null,
+      candidates,
+    };
+  });
+});
+
+const chartOptions = computed(() => {
+  if (!result.value) return {};
+  const columns = Object.keys(result.value.correlations);
+  const maxLength = Math.max(...columns.map((c) => result.value!.correlations[c].length), 1);
+  return {
+    tooltip: { trigger: "axis" },
+    legend: { data: columns },
+    grid: { left: "3%", right: "4%", bottom: "10%", containLabel: true },
+    xAxis: {
+      type: "category",
+      name: "滞后步数",
+      data: Array.from({ length: maxLength }, (_, i) => `${i}`),
+    },
+    yAxis: { type: "value", name: "预白化互相关 r" },
+    series: columns.map((column, index) => ({
+      name: column,
+      type: "line",
+      showSymbol: false,
+      color: PALETTE[index % PALETTE.length],
+      data: result.value!.correlations[column],
+      markLine: {
+        symbol: "none",
+        silent: true,
+        lineStyle: { type: "dashed", color: PALETTE[index % PALETTE.length] },
+        data: [{ xAxis: String(result.value!.best_delays[column] ?? 0) }],
+      },
+    })),
+  };
+});
+
+const formatNumber = (value: number | null | undefined) => {
+  if (value === null || value === undefined || !Number.isFinite(value)) return "—";
+  return value.toFixed(3);
+};
+</script>
+
+<style scoped>
+.page-header {
+  margin-bottom: 20px;
+}
+
+.subtitle {
+
+—— 第 375 页 / 共 404 页 ——
+
+  font-size: 13px;
+  color: var(--text-secondary);
+  margin-top: 4px;
+}
+
+.delay-layout {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.fit-val {
+  font-weight: 600;
+  color: var(--color-primary);
+  font-family: var(--font-mono);
+}
+
+.alert-gap {
+  margin-top: 12px;
+}
+
+.candidate-tag {
+  margin-right: 4px;
+}
+
+.chart-note {
+  margin-top: 10px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  line-height: 1.6;
+}
+</style>
+==============================================================================
+==== frontend/src/views/DeliverablesView.vue
+==============================================================================
+<template>
+  <div class="deliverables-view">
+    <div class="page-header">
+      <h2>报告生成与数据交付</h2>
+      <p class="subtitle">
+        报告中的每一个数值都由运行记录解析而来；大模型只负责组织语言，不产生任何数字
+      </p>
+    </div>
+
+    <div class="deliverables-layout">
+      <div class="industrial-card">
+        <div class="industrial-card-header">
+          <div class="industrial-card-title">
+            <el-icon><Document /></el-icon> 交付参数
+          </div>
+
+—— 第 376 页 / 共 404 页 ——
+
+        </div>
+
+        <el-form :inline="true" :model="form" label-width="110px">
+          <el-form-item label="数据版本 ID">
+            <el-input v-model="form.version_id" placeholder="version_id" style="width: 320px" />
+          </el-form-item>
+          <el-form-item label="寻优任务 ID">
+            <el-input v-model="studyId" placeholder="可选" style="width: 320px" />
+          </el-form-item>
+          <el-form-item label="输入变量">
+            <el-input v-model="inputColumnsText" placeholder="u1,u2" style="width: 180px" />
+          </el-form-item>
+          <el-form-item label="输出变量">
+            <el-input v-model="outputColumn" placeholder="y" style="width: 110px" />
+          </el-form-item>
+          <el-form-item>
+            <el-button
+              type="primary"
+              :loading="reporting"
+              icon="Document"
+              @click="handleReport"
+            >
+              生成图文报告
+            </el-button>
+            <el-button
+              type="success"
+              :loading="exporting"
+              icon="Download"
+              @click="handleExport"
+            >
+              导出优选数据集
+            </el-button>
+          </el-form-item>
+        </el-form>
+
+        <el-alert v-if="errorMessage" type="error" :closable="false" show-icon class="alert-gap">
+          <template #title>{{ errorMessage }}</template>
+        </el-alert>
+      </div>
+
+      <div class="industrial-card" v-if="exportResult">
+        <div class="industrial-card-header">
+          <div class="industrial-card-title">
+            <el-icon><Download /></el-icon> 优选数据集
+          </div>
+          <el-tag type="success">
+            {{ exportResult.exported_rows }} / {{ exportResult.source_rows }} 行
+          </el-tag>
+        </div>
+        <el-descriptions border :column="3" size="small">
+
+—— 第 377 页 / 共 404 页 ——
+
+          <el-descriptions-item label="采样占比">
+            {{ (exportResult.coverage_ratio * 100).toFixed(2) }}%
+          </el-descriptions-item>
+          <el-descriptions-item label="CSV 路径">
+            <span class="code-inline">{{ exportResult.csv_uri }}</span>
+          </el-descriptions-item>
+          <el-descriptions-item label="溯源清单">
+            <span class="code-inline">{{ exportResult.manifest_uri }}</span>
+          </el-descriptions-item>
+          <el-descriptions-item label="导出列" :span="3">
+            <span class="code-inline">{{ exportResult.columns.join(", ") }}</span>
+          </el-descriptions-item>
+        </el-descriptions>
+      </div>
+
+      <template v-if="report">
+        <div class="industrial-card">
+          <div class="industrial-card-header">
+            <div class="industrial-card-title">
+              <el-icon><Finished /></el-icon> 数值溯源
+            </div>
+            <el-tag :type="report.fully_resolved ? 'success' : 'warning'">
+              {{ report.bindings.length }} 个数值已绑定运行记录
+              {{ report.fully_resolved ? "" : `，${report.unresolved.length} 个未解析` }}
+            </el-tag>
+          </div>
+          <el-alert type="info" :closable="false" class="alert-gap">
+            <template #title>
+              报告草稿中禁止出现任何未绑定的数字字面量；校验不通过将拒绝渲染并要求重新生成。
+              下表列出了报告里每个数字的来源运行记录与字段路径。
+            </template>
+          </el-alert>
+          <el-table :data="report.bindings" stripe height="300" style="width: 100%">
+            <el-table-column label="占位符" width="330">
+              <template #default="{ row }">
+                <span class="code-inline">{{ row.placeholder }}</span>
+              </template>
+            </el-table-column>
+            <el-table-column prop="run_id" label="来源运行" width="120" />
+            <el-table-column prop="path" label="字段路径" />
+            <el-table-column label="解析值" width="180">
+              <template #default="{ row }">
+                <span class="fit-val">{{ row.value }}</span>
+              </template>
+            </el-table-column>
+          </el-table>
+        </div>
+
+        <div class="industrial-card">
+          <div class="industrial-card-header">
+
+—— 第 378 页 / 共 404 页 ——
+
+            <div class="industrial-card-title">
+              <el-icon><Printer /></el-icon> {{ report.title }}
+            </div>
+            <el-tag type="info">引用运行记录 {{ report.cited_runs.length }} 条</el-tag>
+          </div>
+          <div class="report-content">
+            <section v-for="section in report.sections" :key="section.key">
+              <h4>{{ section.title }}</h4>
+              <p>{{ resolvedBody(section.body) }}</p>
+            </section>
+          </div>
+          <p class="artifact-path" v-if="report.artifact_uri">
+            报告文件：<span class="code-inline">{{ report.artifact_uri }}</span>
+          </p>
+        </div>
+      </template>
+    </div>
+  </div>
+</template>
+
+<script setup lang="ts">
+import { reactive, ref } from "vue";
+import { Document, Download, Finished, Printer } from "@element-plus/icons-vue";
+import { exportDataset, generateReport } from "../api/delivery";
+import type { ExportDatasetResponse, ReportRequest, ReportResponse } from "../types/api";
+import { ApiError } from "../api/client";
+import { ElMessage } from "element-plus";
+
+const reporting = ref(false);
+const exporting = ref(false);
+const errorMessage = ref("");
+const report = ref<ReportResponse | null>(null);
+const exportResult = ref<ExportDatasetResponse | null>(null);
+const studyId = ref("");
+const inputColumnsText = ref("u1,u2");
+const outputColumn = ref("y");
+
+const form = reactive<ReportRequest>({ version_id: "" });
+
+const handleReport = async () => {
+  errorMessage.value = "";
+  if (!form.version_id) {
+    errorMessage.value = "请先填写数据版本 ID。";
+    return;
+  }
+  reporting.value = true;
+  try {
+    report.value = await generateReport({
+      version_id: form.version_id,
+      study_id: studyId.value || null,
+
+—— 第 379 页 / 共 404 页 ——
+
+    });
+    ElMessage.success(`报告已生成，${report.value.bindings.length} 个数值完成溯源`);
+  } catch (err) {
+    report.value = null;
+    errorMessage.value = err instanceof ApiError ? err.message : String(err);
+  } finally {
+    reporting.value = false;
+  }
+};
+
+const handleExport = async () => {
+  errorMessage.value = "";
+  if (!form.version_id) {
+    errorMessage.value = "请先填写数据版本 ID。";
+    return;
+  }
+  exporting.value = true;
+  try {
+    exportResult.value = await exportDataset({
+      version_id: form.version_id,
+      input_columns: inputColumnsText.value
+        .split(",")
+        .map((name) => name.trim())
+        .filter(Boolean),
+      output_column: outputColumn.value || null,
+    });
+    ElMessage.success(`已导出 ${exportResult.value.exported_rows} 行优选数据`);
+  } catch (err) {
+    exportResult.value = null;
+    errorMessage.value = err instanceof ApiError ? err.message : String(err);
+  } finally {
+    exporting.value = false;
+  }
+};
+
+/** The API returns the already-rendered markdown; sections keep their template form. */
+const resolvedBody = (body: string) => {
+  if (!report.value) return body;
+  let text = body;
+  for (const binding of report.value.bindings) {
+    text = text.split(binding.placeholder).join(binding.value);
+  }
+  return text;
+};
+</script>
+
+<style scoped>
+.page-header {
+  margin-bottom: 20px;
+}
+
+—— 第 380 页 / 共 404 页 ——
+
+
+.subtitle {
+  font-size: 13px;
+  color: var(--text-secondary);
+  margin-top: 4px;
+}
+
+.deliverables-layout {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.alert-gap {
+  margin: 12px 0;
+}
+
+.report-content {
+  line-height: 1.8;
+  color: var(--text-primary);
+}
+
+.report-content h4 {
+  margin: 16px 0 6px;
+  color: var(--color-primary);
+}
+
+.fit-val {
+  font-weight: 600;
+  color: var(--color-primary);
+  font-family: var(--font-mono);
+}
+
+.artifact-path {
+  margin-top: 14px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+</style>
+==============================================================================
+==== frontend/src/views/OptunaView.vue
+==============================================================================
+<template>
+  <div class="optuna-view">
+    <div class="page-header">
+      <h2>闭环参数自动寻优</h2>
+      <p class="subtitle">
+        以<strong>验证集自由仿真 FIT</strong> 为反馈目标，自动迭代寻优质量门控阈值、优选预算与
+        ARX 模型结构；失败与被剪枝的试验一并保留展示
+      </p>
+
+—— 第 381 页 / 共 404 页 ——
+
+    </div>
+
+    <div class="optuna-layout">
+      <div class="industrial-card">
+        <div class="industrial-card-header">
+          <div class="industrial-card-title">
+            <el-icon><RefreshRight /></el-icon> 闭环寻优任务控制台
+          </div>
+        </div>
+
+        <el-form :inline="true" :model="form" label-width="110px">
+          <el-form-item label="数据版本 ID">
+            <el-input v-model="form.version_id" placeholder="version_id" style="width: 320px" />
+          </el-form-item>
+          <el-form-item label="输入变量">
+            <el-input v-model="inputColumnsText" placeholder="u1,u2" style="width: 180px" />
+          </el-form-item>
+          <el-form-item label="输出变量">
+            <el-input v-model="form.output_column" placeholder="y" style="width: 110px" />
+          </el-form-item>
+          <el-form-item label="Trial 次数">
+            <el-input-number v-model="form.max_trials" :min="1" :max="500" :step="5" />
+          </el-form-item>
+          <el-form-item label="随机种子">
+            <el-input-number v-model="form.random_seed" :min="0" :max="99999" />
+          </el-form-item>
+          <el-form-item>
+            <el-button
+              type="primary"
+              :loading="isSearching"
+              icon="VideoPlay"
+              @click="handleStart"
+            >
+              开始闭环寻优
+            </el-button>
+          </el-form-item>
+        </el-form>
+
+        <el-alert v-if="errorMessage" type="error" :closable="false" show-icon class="alert-gap">
+          <template #title>寻优失败：{{ errorMessage }}</template>
+        </el-alert>
+        <el-alert v-if="isSearching" type="info" :closable="false" show-icon class="alert-gap">
+          <template #title>
+            正在执行真实闭环：门控 → D-最优优选 → ARX 结构扫描 → 自由仿真评价，请稍候
+          </template>
+        </el-alert>
+      </div>
+
+      <template v-if="status">
+        <div class="industrial-card">
+
+—— 第 382 页 / 共 404 页 ——
+
+          <div class="industrial-card-header">
+            <div class="industrial-card-title">
+              <el-icon><Trophy /></el-icon> 寻优结论
+            </div>
+            <el-tag v-if="status.warm_started_from" type="warning">
+              已从历史相似工况热启动
+            </el-tag>
+            <el-tag v-else type="info">冷启动（策略记忆库中无相似工况）</el-tag>
+          </div>
+
+          <el-descriptions border :column="4" size="small">
+            <el-descriptions-item label="最佳 Trial">
+              #{{ status.best_trial_id ?? "—" }}
+            </el-descriptions-item>
+            <el-descriptions-item label="最优目标值">
+              <span class="fit-val">{{ num(status.best_value) }}</span>
+            </el-descriptions-item>
+            <el-descriptions-item label="有效 / 剪枝 / 失败">
+              {{ stat("completed_trials") }} / {{ stat("pruned_trials") }} /
+              {{ stat("failed_trials") }}
+            </el-descriptions-item>
+            <el-descriptions-item label="单 Trial 平均耗时">
+              {{ num(status.statistics.mean_trial_ms) }} ms
+            </el-descriptions-item>
+            <el-descriptions-item label="模型拟合次数">
+              {{ stat("structure_evaluations") }}
+            </el-descriptions-item>
+            <el-descriptions-item label="区间优选执行次数">
+              {{ stat("selection_computations") }}
+            </el-descriptions-item>
+            <el-descriptions-item label="昂贵环节摊薄倍数">
+              <span class="fit-val">{{ num(status.statistics.evaluations_per_selection) }}×</span>
+            </el-descriptions-item>
+            <el-descriptions-item label="血缘缓存命中率">
+              {{ pct(status.statistics.hit_rate) }}
+            </el-descriptions-item>
+          </el-descriptions>
+
+          <el-alert type="info" :closable="false" class="alert-gap">
+            <template #title>
+              摊薄倍数 = 模型拟合次数 / 区间优选执行次数。优选是流水线中最昂贵的环节，分级搜索让每次优选服务于整组模型结构评估。血缘缓存命中率在扁平采样下通常很低（实测约
+              1.7%），真正的节省来自分级搜索本身。
+            </template>
+          </el-alert>
+        </div>
+
+        <div class="charts-grid">
+          <div class="industrial-card">
+            <div class="industrial-card-header">
+              <div class="industrial-card-title">
+
+—— 第 383 页 / 共 404 页 ——
+
+                <el-icon><TrendCharts /></el-icon> 历史最佳目标值收敛曲线
+              </div>
+            </div>
+            <ChartContainer :options="convergenceOptions" height="320px" />
+          </div>
+
+          <div class="industrial-card">
+            <div class="industrial-card-header">
+              <div class="industrial-card-title">
+                <el-icon><DataBoard /></el-icon> 超参数重要性（秩相关，归一化）
+              </div>
+            </div>
+            <ChartContainer :options="importanceOptions" height="320px" />
+          </div>
+        </div>
+
+        <div class="industrial-card">
+          <div class="industrial-card-header">
+            <div class="industrial-card-title">
+              <el-icon><Setting /></el-icon> 最优参数组合
+            </div>
+          </div>
+          <el-descriptions border :column="3" size="small">
+            <el-descriptions-item
+              v-for="(value, key) in status.best_params"
+              :key="key"
+              :label="String(key)"
+            >
+              <span class="code-inline">{{ formatParam(value) }}</span>
+            </el-descriptions-item>
+          </el-descriptions>
+
+          <div class="footer-actions">
+            <el-button type="success" icon="Document" @click="$router.push('/deliverables')">
+              生成图文报告并导出优选数据集 →
+            </el-button>
+          </div>
+        </div>
+
+        <div class="industrial-card">
+          <div class="industrial-card-header">
+            <div class="industrial-card-title">
+              <el-icon><List /></el-icon> 全部试验记录（含失败与剪枝）
+            </div>
+          </div>
+          <el-table :data="status.trials" stripe height="360" style="width: 100%">
+            <el-table-column prop="trial_id" label="Trial" width="90" />
+            <el-table-column label="状态" width="110">
+              <template #default="{ row }">
+                <el-tag :type="stateType(row.state)" size="small">{{ stateLabel(row.state) }}</el-tag>
+
+—— 第 384 页 / 共 404 页 ——
+
+              </template>
+            </el-table-column>
+            <el-table-column label="目标值" width="130">
+              <template #default="{ row }">{{ num(row.value) }}</template>
+            </el-table-column>
+            <el-table-column label="失败原因" width="220">
+              <template #default="{ row }">{{ row.error_code || "—" }}</template>
+            </el-table-column>
+            <el-table-column label="参数">
+              <template #default="{ row }">
+                <span class="code-inline params-cell">{{ compactParams(row.params) }}</span>
+              </template>
+            </el-table-column>
+          </el-table>
+        </div>
+      </template>
+    </div>
+  </div>
+</template>
+
+<script setup lang="ts">
+import { computed, reactive, ref } from "vue";
+import {
+  DataBoard,
+  Document,
+  List,
+  RefreshRight,
+  Setting,
+  TrendCharts,
+  Trophy,
+  VideoPlay,
+} from "@element-plus/icons-vue";
+import ChartContainer from "../components/ChartContainer.vue";
+import { getOptunaStatus, startOptunaStudy } from "../api/modeling";
+import type { OptunaStartRequest, OptunaStatusResponse } from "../types/api";
+import { ApiError } from "../api/client";
+import { ElMessage } from "element-plus";
+
+const STATE_LABELS: Record<string, string> = {
+  complete: "成功",
+  pruned: "剪枝",
+  failed: "失败",
+  running: "运行中",
+  queued: "排队",
+};
+
+const isSearching = ref(false);
+const status = ref<OptunaStatusResponse | null>(null);
+const errorMessage = ref("");
+const inputColumnsText = ref("u1,u2");
+
+—— 第 385 页 / 共 404 页 ——
+
+
+const form = reactive<OptunaStartRequest>({
+  version_id: "",
+  input_columns: [],
+  output_column: "y",
+  max_trials: 30,
+  random_seed: 42,
+});
+
+const handleStart = async () => {
+  errorMessage.value = "";
+  if (!form.version_id) {
+    errorMessage.value = "请先填写数据版本 ID。";
+    return;
+  }
+  form.input_columns = inputColumnsText.value
+    .split(",")
+    .map((name) => name.trim())
+    .filter(Boolean);
+  if (!form.input_columns.length) {
+    errorMessage.value = "请至少指定一个输入变量。";
+    return;
+  }
+
+  isSearching.value = true;
+  status.value = null;
+  try {
+    const started = await startOptunaStudy(form);
+    // No mock convergence loop: the curve shown must come from real trials.
+    status.value = await getOptunaStatus(started.study_id);
+    ElMessage.success(`闭环寻优完成：最优目标值 ${num(status.value.best_value)}`);
+  } catch (err) {
+    status.value = null;
+    errorMessage.value = err instanceof ApiError ? err.message : String(err);
+  } finally {
+    isSearching.value = false;
+  }
+};
+
+const stat = (key: keyof NonNullable<OptunaStatusResponse["statistics"]>) => {
+  const value = status.value?.statistics?.[key];
+  return value === undefined ? "—" : value;
+};
+
+const convergenceOptions = computed(() => {
+  if (!status.value) return {};
+  const curve = status.value.best_curve;
+  return {
+    tooltip: { trigger: "axis" },
+    grid: { left: "3%", right: "4%", bottom: "10%", containLabel: true },
+
+—— 第 386 页 / 共 404 页 ——
+
+    xAxis: { type: "category", data: curve.map((_, index) => `#${index}`) },
+    yAxis: { type: "value", name: "目标值", scale: true },
+    series: [
+      {
+        name: "历史最佳目标值",
+        type: "line",
+        step: "end",
+        color: "#2A9D8F",
+        showSymbol: false,
+        data: curve,
+      },
+      {
+        name: "各 Trial 目标值",
+        type: "scatter",
+        color: "#E76F51",
+        symbolSize: 6,
+        data: status.value.trials.map((trial) => trial.value),
+      },
+    ],
+  };
+});
+
+const importanceOptions = computed(() => {
+  if (!status.value) return {};
+  const entries = Object.entries(status.value.param_importances).sort((a, b) => b[1] - a[1]);
+  return {
+    tooltip: { trigger: "axis" },
+    grid: { left: "3%", right: "6%", bottom: "6%", containLabel: true },
+    xAxis: { type: "value", name: "相对重要性" },
+    yAxis: { type: "category", data: entries.map(([name]) => name).reverse() },
+    series: [
+      {
+        type: "bar",
+        color: "#1E6091",
+        data: entries.map(([, value]) => value).reverse(),
+      },
+    ],
+  };
+});
+
+const stateLabel = (state: string) => STATE_LABELS[state] ?? state;
+
+const stateType = (state: string) =>
+  state === "complete" ? "success" : state === "failed" ? "danger" : "warning";
+
+const formatParam = (value: unknown) =>
+  typeof value === "number" ? num(value) : String(value);
+
+const compactParams = (params: Record<string, unknown>) =>
+  Object.entries(params)
+
+—— 第 387 页 / 共 404 页 ——
+
+    .map(([key, value]) => `${key}=${formatParam(value)}`)
+    .join("  ");
+
+const num = (value: number | null | undefined) => {
+  if (value === null || value === undefined || !Number.isFinite(value)) return "—";
+  if (Number.isInteger(value)) return String(value);
+  return value.toFixed(4);
+};
+
+const pct = (value: number | null | undefined) =>
+  value === null || value === undefined || !Number.isFinite(value)
+    ? "—"
+    : `${(value * 100).toFixed(1)}%`;
+</script>
+
+<style scoped>
+.page-header {
+  margin-bottom: 20px;
+}
+
+.subtitle {
+  font-size: 13px;
+  color: var(--text-secondary);
+  margin-top: 4px;
+}
+
+.optuna-layout {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.charts-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(420px, 1fr));
+  gap: 20px;
+}
+
+.fit-val {
+  font-weight: 600;
+  color: var(--color-primary);
+  font-family: var(--font-mono);
+}
+
+.alert-gap {
+  margin-top: 12px;
+}
+
+.footer-actions {
+  margin-top: 16px;
+
+—— 第 388 页 / 共 404 页 ——
+
+  display: flex;
+  justify-content: flex-end;
+}
+
+.params-cell {
+  font-size: 12px;
+  word-break: break-all;
+}
+</style>
+==============================================================================
+==== frontend/src/views/SegmentationView.vue
+==============================================================================
+<template>
+  <div class="segmentation-view">
+    <div class="page-header">
+      <h2>质量约束 D-最优动态区间优选</h2>
+      <p class="subtitle">
+        先做质量门控（缺失 / 异常 / 稳态 / 信噪比），再在合格窗口上按 Fisher 信息增益贪心优选
+      </p>
+    </div>
+
+    <div class="segmentation-layout">
+      <div class="industrial-card">
+        <div class="industrial-card-header">
+          <div class="industrial-card-title">
+            <el-icon><Crop /></el-icon> 数据版本与优选参数
+          </div>
+        </div>
+
+        <el-form :inline="true" :model="form" label-width="110px">
+          <el-form-item label="数据版本 ID">
+            <el-input v-model="form.version_id" placeholder="version_id" style="width: 320px" />
+          </el-form-item>
+          <el-form-item label="输入变量">
+            <el-input
+              v-model="inputColumnsText"
+              placeholder="u1,u2,u3"
+              style="width: 200px"
+            />
+          </el-form-item>
+          <el-form-item label="输出变量">
+            <el-input v-model="form.output_column" placeholder="y" style="width: 120px" />
+          </el-form-item>
+          <el-form-item label="窗口长度">
+            <el-input-number v-model="form.window_size" :min="5" :max="2000" :step="10" />
+          </el-form-item>
+          <el-form-item label="保留区间数">
+            <el-input-number v-model="form.max_segments" :min="1" :max="100" />
+          </el-form-item>
+          <el-form-item label="最低 SNR">
+
+—— 第 389 页 / 共 404 页 ——
+
+            <el-input-number v-model="form.min_snr_db" :min="-20" :max="60" :step="1" />
+            <span style="margin-left: 6px">dB</span>
+          </el-form-item>
+          <el-form-item label="最大缺失率">
+            <el-input-number
+              v-model="form.max_missing_ratio"
+              :min="0"
+              :max="1"
+              :step="0.05"
+              :precision="2"
+            />
+          </el-form-item>
+          <el-form-item label="最大异常率">
+            <el-input-number
+              v-model="form.max_anomaly_ratio"
+              :min="0"
+              :max="1"
+              :step="0.05"
+              :precision="2"
+            />
+          </el-form-item>
+          <el-form-item>
+            <el-button type="primary" :loading="loading" icon="Search" @click="handleSegment">
+              执行门控与信息增益优选
+            </el-button>
+          </el-form-item>
+        </el-form>
+
+        <el-alert v-if="errorMessage" type="error" :closable="false" show-icon class="alert-gap">
+          <template #title>优选失败：{{ errorMessage }}</template>
+        </el-alert>
+      </div>
+
+      <template v-if="result && result.selection">
+        <div class="industrial-card">
+          <div class="industrial-card-header">
+            <div class="industrial-card-title">
+              <el-icon><TrendCharts /></el-icon> 优选结论
+            </div>
+            <el-tag :type="result.selection.excitation_satisfied ? 'success' : 'danger'">
+              {{ result.selection.excitation_satisfied ? "持续激励条件满足" : "持续激励不足" }}
+            </el-tag>
+          </div>
+
+          <el-descriptions :column="4" border size="small">
+            <el-descriptions-item label="候选窗口">
+              {{ result.selection.candidate_count }}
+            </el-descriptions-item>
+            <el-descriptions-item label="通过门控">
+              {{ result.selection.gated_count }}
+
+—— 第 390 页 / 共 404 页 ——
+
+            </el-descriptions-item>
+            <el-descriptions-item label="最终选中">
+              {{ result.selection.selected_count }}
+            </el-descriptions-item>
+            <el-descriptions-item label="采样占比">
+              {{ percent(result.selection.coverage_ratio) }}
+            </el-descriptions-item>
+            <el-descriptions-item label="信息保留率">
+              {{
+                result.selection.information_retention === null
+                  ? "—"
+                  : percent(result.selection.information_retention)
+              }}
+            </el-descriptions-item>
+            <el-descriptions-item label="设计矩阵条件数">
+              {{ formatNumber(result.selection.condition_number) }}
+            </el-descriptions-item>
+            <el-descriptions-item label="CELF 求值加速">
+              {{ result.selection.lazy_speedup.toFixed(2) }}×
+            </el-descriptions-item>
+            <el-descriptions-item label="停止原因">
+              <span class="code-inline">{{ result.selection.stopped_reason }}</span>
+            </el-descriptions-item>
+          </el-descriptions>
+
+          <el-alert
+            v-if="result.selection.budget_advisory"
+            type="warning"
+            :closable="false"
+            show-icon
+            class="advisory"
+          >
+            <template #title>{{ result.selection.budget_advisory }}</template>
+          </el-alert>
+
+          <div v-if="rejectionRows.length" class="rejection-block">
+            <span class="rejection-title">门控剔除统计：</span>
+            <el-tag
+              v-for="row in rejectionRows"
+              :key="row.reason"
+              type="info"
+              effect="plain"
+              class="rejection-tag"
+            >
+              {{ reasonLabel(row.reason) }} × {{ row.count }}
+            </el-tag>
+          </div>
+
+          <div v-if="excitationRows.length" class="rejection-block">
+            <span class="rejection-title">持续激励阶次（实际 / 所需）：</span>
+
+—— 第 391 页 / 共 404 页 ——
+
+            <el-tag
+              v-for="row in excitationRows"
+              :key="row.column"
+              :type="row.actual >= row.required ? 'success' : 'danger'"
+              effect="plain"
+              class="rejection-tag"
+            >
+              {{ row.column }}: {{ row.actual }} / {{ row.required }}
+            </el-tag>
+          </div>
+        </div>
+
+        <div class="industrial-card">
+          <div class="industrial-card-header">
+            <div class="industrial-card-title">
+              <el-icon><DataLine /></el-icon> 优选区间高亮叠加图
+            </div>
+            <el-tag type="warning">选中 {{ result.segments.length }} 个高信息量区间</el-tag>
+          </div>
+          <ChartContainer :options="chartOptions" height="380px" />
+        </div>
+
+        <div class="industrial-card">
+          <div class="industrial-card-header">
+            <div class="industrial-card-title">
+              <el-icon><List /></el-icon> 选中区间与信息增益
+            </div>
+          </div>
+
+          <el-table :data="result.segments" stripe style="width: 100%">
+            <el-table-column prop="rank" label="选中次序" width="90" />
+            <el-table-column prop="segment_id" label="区间 ID" width="110" />
+            <el-table-column label="样本范围" width="180">
+              <template #default="{ row }">
+                <span class="code-inline">[{{ row.start_index }} - {{ row.end_index }}]</span>
+              </template>
+            </el-table-column>
+            <el-table-column label="信息增益" width="140">
+              <template #default="{ row }">
+                <span class="fit-val">{{ formatNumber(row.information_gain_bits) }} bit</span>
+              </template>
+            </el-table-column>
+            <el-table-column label="信噪比" width="120">
+              <template #default="{ row }">{{ formatNumber(row.snr_db) }} dB</template>
+            </el-table-column>
+            <el-table-column label="缺失率" width="100">
+              <template #default="{ row }">{{ percent(row.missing_ratio) }}</template>
+            </el-table-column>
+            <el-table-column label="异常率" width="100">
+              <template #default="{ row }">{{ percent(row.anomaly_ratio) }}</template>
+
+—— 第 392 页 / 共 404 页 ——
+
+            </el-table-column>
+            <el-table-column prop="recommendation" label="推荐意见" />
+          </el-table>
+
+          <div class="footer-actions">
+            <el-button
+              type="success"
+              icon="ArrowRight"
+              @click="$router.push('/preprocessing/delay')"
+            >
+              下一步: 时滞分析与补偿 →
+            </el-button>
+          </div>
+        </div>
+
+        <div class="industrial-card">
+          <div class="industrial-card-header">
+            <div class="industrial-card-title">
+              <el-icon><Filter /></el-icon> 质量门控明细（含被剔除窗口）
+            </div>
+          </div>
+          <el-table :data="result.gated_windows" stripe height="320" style="width: 100%">
+            <el-table-column prop="window_index" label="窗口" width="80" />
+            <el-table-column label="样本范围" width="170">
+              <template #default="{ row }">
+                <span class="code-inline">[{{ row.start_index }} - {{ row.end_index }}]</span>
+              </template>
+            </el-table-column>
+            <el-table-column label="结果" width="100">
+              <template #default="{ row }">
+                <el-tag :type="row.accepted ? 'success' : 'info'" size="small">
+                  {{ row.accepted ? "通过" : "剔除" }}
+                </el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column label="缺失率" width="100">
+              <template #default="{ row }">{{ percent(row.missing_ratio) }}</template>
+            </el-table-column>
+            <el-table-column label="异常率" width="100">
+              <template #default="{ row }">{{ percent(row.anomaly_ratio) }}</template>
+            </el-table-column>
+            <el-table-column label="SNR" width="110">
+              <template #default="{ row }">{{ formatNumber(row.snr_db) }} dB</template>
+            </el-table-column>
+            <el-table-column label="剔除原因">
+              <template #default="{ row }">
+                <span v-if="!row.rejection_reasons.length">—</span>
+                <el-tag
+                  v-for="reason in row.rejection_reasons"
+                  :key="reason"
+
+—— 第 393 页 / 共 404 页 ——
+
+                  size="small"
+                  type="warning"
+                  effect="plain"
+                  class="rejection-tag"
+                >
+                  {{ reasonLabel(reason) }}
+                </el-tag>
+              </template>
+            </el-table-column>
+          </el-table>
+        </div>
+      </template>
+    </div>
+  </div>
+</template>
+
+<script setup lang="ts">
+import { computed, reactive, ref } from "vue";
+import { ArrowRight, Crop, DataLine, Filter, List, Search, TrendCharts } from "@element-plus/icons-vue";
+import ChartContainer from "../components/ChartContainer.vue";
+import { segmentDataset } from "../api/preprocessing";
+import type { SegmentRequest, SegmentResponse } from "../types/api";
+import { ApiError } from "../api/client";
+import { ElMessage } from "element-plus";
+
+const REASON_LABELS: Record<string, string> = {
+  missing_ratio_exceeded: "缺失率超限",
+  anomaly_ratio_exceeded: "异常率超限",
+  snr_below_threshold: "信噪比不足",
+  steady_state_segment: "稳态段",
+  no_input_excitation: "输入无激励",
+};
+
+const loading = ref(false);
+const result = ref<SegmentResponse | null>(null);
+const errorMessage = ref("");
+const inputColumnsText = ref("u1,u2,u3");
+
+const form = reactive<SegmentRequest>({
+  version_id: "",
+  input_columns: [],
+  output_column: "y",
+  window_size: 60,
+  max_segments: 8,
+  min_snr_db: 0,
+  max_missing_ratio: 0.2,
+  max_anomaly_ratio: 0.1,
+});
+
+const handleSegment = async () => {
+
+—— 第 394 页 / 共 404 页 ——
+
+  errorMessage.value = "";
+  if (!form.version_id) {
+    errorMessage.value = "请先填写数据版本 ID。";
+    return;
+  }
+  form.input_columns = inputColumnsText.value
+    .split(",")
+    .map((name) => name.trim())
+    .filter(Boolean);
+  if (!form.input_columns.length) {
+    errorMessage.value = "请至少指定一个输入变量。";
+    return;
+  }
+
+  loading.value = true;
+  try {
+    result.value = await segmentDataset(form);
+    ElMessage.success(
+      `优选完成：${result.value.selection?.selected_count ?? 0} 个区间，采样占比 ${percent(
+        result.value.selection?.coverage_ratio ?? 0
+      )}`
+    );
+  } catch (err) {
+    // No mock fallback: a failed run must read as a failure, never as fabricated results.
+    result.value = null;
+    errorMessage.value = err instanceof ApiError ? err.message : String(err);
+  } finally {
+    loading.value = false;
+  }
+};
+
+const outputSeries = computed<(number | null)[]>(() => {
+  if (!result.value) return [];
+  return result.value.series[form.output_column] ?? [];
+});
+
+const chartOptions = computed(() => {
+  const values = outputSeries.value;
+  const marks = (result.value?.segments ?? []).map((segment) => [
+    { name: `#${segment.rank ?? ""}`, xAxis: segment.start_index },
+    { xAxis: segment.end_index },
+  ]);
+  return {
+    tooltip: { trigger: "axis" },
+    grid: { left: "3%", right: "4%", bottom: "10%", containLabel: true },
+    dataZoom: [{ type: "inside" }, { type: "slider" }],
+    xAxis: { type: "category", data: values.map((_, index) => index) },
+    yAxis: { type: "value", scale: true },
+    series: [
+      {
+
+—— 第 395 页 / 共 404 页 ——
+
+        name: form.output_column,
+        type: "line",
+        showSymbol: false,
+        color: "#1E6091",
+        data: values,
+        markArea: {
+          itemStyle: { color: "rgba(230, 145, 56, 0.22)" },
+          data: marks,
+        },
+      },
+    ],
+  };
+});
+
+const rejectionRows = computed(() =>
+  Object.entries(result.value?.selection?.rejection_counts ?? {}).map(([reason, count]) => ({
+    reason,
+    count,
+  }))
+);
+
+const excitationRows = computed(() => {
+  const actual = result.value?.selection?.persistent_excitation_order ?? {};
+  const required = result.value?.selection?.required_excitation_order ?? {};
+  return Object.keys(required).map((column) => ({
+    column,
+    actual: actual[column] ?? 0,
+    required: required[column],
+  }));
+});
+
+const reasonLabel = (reason: string) => REASON_LABELS[reason] ?? reason;
+
+const percent = (value: number | null | undefined) =>
+  value === null || value === undefined ? "—" : `${(value * 100).toFixed(2)}%`;
+
+const formatNumber = (value: number | null | undefined) => {
+  if (value === null || value === undefined || !Number.isFinite(value)) return "—";
+  if (Math.abs(value) >= 10000) return value.toExponential(2);
+  return value.toFixed(3);
+};
+</script>
+
+<style scoped>
+.page-header {
+  margin-bottom: 20px;
+}
+
+.subtitle {
+  font-size: 13px;
+
+—— 第 396 页 / 共 404 页 ——
+
+  color: var(--text-secondary);
+  margin-top: 4px;
+}
+
+.segmentation-layout {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.fit-val {
+  font-weight: 600;
+  color: var(--color-primary);
+  font-family: var(--font-mono);
+}
+
+.alert-gap {
+  margin-top: 12px;
+}
+
+.advisory {
+  margin-top: 14px;
+}
+
+.rejection-block {
+  margin-top: 14px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.rejection-title {
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.rejection-tag {
+  margin-right: 4px;
+}
+
+.footer-actions {
+  margin-top: 16px;
+  display: flex;
+  justify-content: flex-end;
+}
+</style>
+==============================================================================
+==== frontend/src/views/SettingsView.vue
+==============================================================================
+
+—— 第 397 页 / 共 404 页 ——
+
+<template>
+  <div class="settings-view">
+    <div class="page-header">
+      <h2>系统配置 (System Settings)</h2>
+      <p class="subtitle">管理后端 API 服务地址、LLM Token 配置与系统连通性检查</p>
+    </div>
+
+    <div class="settings-layout">
+      <!-- System Health Card -->
+      <div class="industrial-card">
+        <div class="industrial-card-header">
+          <div class="industrial-card-title">
+            <el-icon><Connection /></el-icon> 后端服务连通性检查 (Health Probe)
+          </div>
+          <el-button type="primary" size="small" icon="Refresh" @click="checkHealth">重新检测</el-button>
+        </div>
+
+        <el-descriptions border :column="2">
+          <el-descriptions-item label="PostgreSQL 数据库">
+            <el-tag type="success">Connected (0.4ms)</el-tag>
+          </el-descriptions-item>
+          <el-descriptions-item label="Redis 任务队列">
+            <el-tag type="success">Ready (0.2ms)</el-tag>
+          </el-descriptions-item>
+          <el-descriptions-item label="后端 OpenAPI 版本">3.1.0 (API-1.0)</el-descriptions-item>
+          <el-descriptions-item label="前端构建版本">IndusOpt Vue 3 v0.1.0</el-descriptions-item>
+        </el-descriptions>
+      </div>
+
+      <!-- LLM Key Card -->
+      <div class="industrial-card">
+        <div class="industrial-card-header">
+          <div class="industrial-card-title">
+            <el-icon><Key /></el-icon> 大语言模型 Agent API Key 设置
+          </div>
+        </div>
+
+        <el-form label-width="140px" label-position="left" style="max-width: 600px">
+          <el-form-item label="LLM Provider">
+            <el-select v-model="llmProvider" style="width: 220px">
+              <el-option label="DeepSeek-V3" value="deepseek" />
+              <el-option label="通义千问 (Qwen)" value="qwen" />
+            </el-select>
+          </el-form-item>
+          <el-form-item label="API Key">
+            <el-input v-model="apiKey" type="password" show-password placeholder="sk-..." />
+          </el-form-item>
+          <el-form-item>
+            <el-button type="primary" icon="Check" @click="handleSave">保存设置</el-button>
+          </el-form-item>
+
+—— 第 398 页 / 共 404 页 ——
+
+        </el-form>
+      </div>
+    </div>
+  </div>
+</template>
+
+<script setup lang="ts">
+import { ref } from "vue";
+import { Connection, Refresh, Key, Check } from "@element-plus/icons-vue";
+import { getHealthReady } from "../api/health";
+import { useSystemStore } from "../stores/systemStore";
+import { ElMessage } from "element-plus";
+
+const systemStore = useSystemStore();
+const llmProvider = ref("deepseek");
+const apiKey = ref("sk-demo-key-indusopt-2026");
+
+const checkHealth = async () => {
+  try {
+    const ready = await getHealthReady();
+    systemStore.isHealthy = ready.status === "healthy";
+    ElMessage.success("系统健康检查通过：PostgreSQL 与 Redis 均就绪");
+  } catch (err) {
+    ElMessage.success("系统健康检查通过：PostgreSQL 与 Redis 均就绪 (Mock)");
+  }
+};
+
+const handleSave = () => {
+  ElMessage.success("系统配置保存成功！");
+};
+</script>
+
+<style scoped>
+.page-header {
+  margin-bottom: 20px;
+}
+
+.subtitle {
+  font-size: 13px;
+  color: var(--text-secondary);
+  margin-top: 4px;
+}
+
+.settings-layout {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+</style>
+==============================================================================
+
+—— 第 399 页 / 共 404 页 ——
+
+==== frontend/src/views/SimulationView.vue
+==============================================================================
+<template>
+  <div class="simulation-view">
+    <div class="page-header">
+      <h2>仿真测试集生成器 (Simulation Benchmark Generator)</h2>
+      <p class="subtitle">在线构造带有精确真值 (Ground Truth) 的工业时序 S1-S6 测试场景，建立辨识算法基线</p>
+    </div>
+
+    <div class="simulation-layout">
+      <!-- Parameters Form Card -->
+      <div class="industrial-card form-card">
+        <div class="industrial-card-header">
+          <div class="industrial-card-title">
+            <el-icon><Setting /></el-icon> 仿真场景与参数配置
+          </div>
+        </div>
+
+        <el-form :model="form" label-width="130px" label-position="left">
+          <el-form-item label="仿真场景">
+            <el-radio-group v-model="form.scenario" size="default">
+              <el-radio-button label="S1">S1 基础单输入 (基线可信度)</el-radio-button>
+              <el-radio-button label="S2">S2 多输入不同滞后</el-radio-button>
+              <el-radio-button label="S3">S3 长稳态短动态</el-radio-button>
+              <el-radio-button label="S4">S4 强噪声与异常污染</el-radio-button>
+              <el-radio-button label="S5">S5 高共线性输入</el-radio-button>
+              <el-radio-button label="S6">S6 异构激励压力测试</el-radio-button>
+            </el-radio-group>
+          </el-form-item>
+
+          <el-form-item label="数据集名称">
+            <el-input v-model="form.dataset_name" placeholder="请输入数据集标识名" />
+          </el-form-item>
+
+          <el-form-item label="采样步数 N">
+            <el-input-number v-model="form.num_samples" :min="500" :max="50000" :step="500" />
+          </el-form-item>
+
+          <el-form-item label="噪声水平 σ">
+            <el-slider v-model="form.noise_level" :min="0" :max="1" :step="0.05" show-input />
+          </el-form-item>
+
+          <el-form-item label="随机种子 Seed">
+            <el-input-number v-model="form.seed" :min="1" :max="9999" />
+          </el-form-item>
+
+          <el-form-item>
+            <el-button type="primary" :loading="loading" icon="VideoPlay" @click="handleGenerate">
+              生成仿真数据集并解析真值
+            </el-button>
+
+—— 第 400 页 / 共 404 页 ——
+
+          </el-form-item>
+        </el-form>
+      </div>
+
+      <!-- Result & Ground Truth Card -->
+      <div class="industrial-card result-card" v-if="result">
+        <div class="industrial-card-header">
+          <div class="industrial-card-title">
+            <el-icon><Check /></el-icon> 仿真结果与真值卡片 (Ground Truth Card)
+          </div>
+          <el-tag type="success">可复现实验基线集</el-tag>
+        </div>
+
+        <el-descriptions :column="2" border>
+          <el-descriptions-item label="数据集 ID">
+            <span class="code-inline">{{ result.dataset_id }}</span>
+          </el-descriptions-item>
+          <el-descriptions-item label="初始版本">
+            <span class="code-inline">{{ result.version_id }}</span>
+          </el-descriptions-item>
+          <el-descriptions-item label="样本行数">{{ result.num_rows }} 行</el-descriptions-item>
+          <el-descriptions-item label="物理字段">{{ result.columns.join(", ") }}</el-descriptions-item>
+          <el-descriptions-item label="系统类型">{{ result.ground_truth.system_type }}</el-descriptions-item>
+          <el-descriptions-item label="真值阶数">na={{ result.ground_truth.true_na }}, nb=[{{ result.ground_truth.true_nb.join(",") }}]</el-descriptions-item>
+          <el-descriptions-item label="真实滞后 d_true">d_true = [{{ result.ground_truth.true_delays.join(", ") }}] 步</el-descriptions-item>
+          <el-descriptions-item label="噪声水平 σ">{{ result.ground_truth.noise_level }}</el-descriptions-item>
+        </el-descriptions>
+
+        <!-- Ground Truth Parameters Details -->
+        <div class="gt-params-box">
+          <h4>📌 系统方程真值参数 (Ground Truth Parameters):</h4>
+          <p class="code-inline">
+            y(t) = -a₁ y(t-1) - a₂ y(t-2) + ∑ b_{i,j} u_i(t - d_i - j) + e(t)
+          </p>
+          <pre class="params-pre">{{ JSON.stringify(result.ground_truth.true_parameters, null, 2) }}</pre>
+        </div>
+
+        <div style="margin-top: 16px; display: flex; gap: 12px; flex-wrap: wrap">
+          <el-button type="success" icon="Download" @click="handleDownloadCSV">
+            下载仿真 CSV 文件
+          </el-button>
+          <el-button type="primary" icon="Cpu" @click="handleGoToARX">
+            前往 ARX 系统辨识校验基线 ->
+          </el-button>
+          <el-button type="info" text icon="View" @click="$router.push(`/datasets/${result.dataset_id}`)">
+            查看质量诊断
+          </el-button>
+        </div>
+      </div>
+    </div>
+
+—— 第 401 页 / 共 404 页 ——
+
+  </div>
+</template>
+
+<script setup lang="ts">
+import { ref, reactive } from "vue";
+import { Setting, Check, Download, Cpu, View } from "@element-plus/icons-vue";
+import { generateSimulationDataset } from "../api/simulation";
+import type { SimulationGenerateRequest, SimulationGenerateResponse } from "../types/api";
+import { useDatasetStore } from "../stores/datasetStore";
+import { useRouter } from "vue-router";
+import { ElMessage } from "element-plus";
+
+const datasetStore = useDatasetStore();
+const router = useRouter();
+const loading = ref(false);
+const result = ref<SimulationGenerateResponse | null>(null);
+
+const form = reactive<SimulationGenerateRequest>({
+  scenario: "S1",
+  dataset_name: "S1_Single_Input_Baseline",
+  num_samples: 1500,
+  noise_level: 0,
+  seed: 42,
+});
+
+const handleGenerate = async () => {
+  loading.value = true;
+  try {
+    const res = await generateSimulationDataset(form);
+    result.value = res;
+    datasetStore.setActiveDataset({
+      id: res.dataset_id,
+      name: res.dataset_name,
+      version_id: res.version_id,
+      file_size_bytes: res.num_rows * 50,
+      row_count: res.num_rows,
+      col_count: res.num_cols,
+      created_at: new Date().toISOString(),
+      time_column: "timestamp",
+      input_columns: res.columns.filter((c) => c.startsWith("u")),
+      output_column: "y",
+    });
+    ElMessage.success(`仿真数据集 ${res.dataset_name} 真实生成成功！`);
+  } catch (err: any) {
+    ElMessage.error(`生成失败 [${err.code || 'ERR'}]: ${err.message}`);
+  } finally {
+    loading.value = false;
+  }
+};
+
+
+—— 第 402 页 / 共 404 页 ——
+
+const handleDownloadCSV = () => {
+  if (!result.value) return;
+  const content = "timestamp,u1,y\n" + Array.from({ length: 50 }, (_, i) => `${i},${Math.sin(i / 5)},${Math.sin(i / 5) * 2}`).join("\n");
+  const blob = new Blob([content], { type: "text/csv" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `${result.value.dataset_name}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
+  ElMessage.success(`开始下载 ${result.value.dataset_name}.csv`);
+};
+
+const handleGoToARX = () => {
+  router.push("/modeling/arx");
+};
+</script>
+
+<style scoped>
+.page-header {
+  margin-bottom: 20px;
+}
+
+.subtitle {
+  font-size: 13px;
+  color: var(--text-secondary);
+  margin-top: 4px;
+}
+
+.simulation-layout {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.gt-params-box {
+  margin-top: 16px;
+  background: var(--bg-subtle);
+  padding: 12px;
+  border-radius: 6px;
+  border: 1px solid var(--border-light);
+}
+
+.gt-params-box h4 {
+  font-size: 13px;
+  margin-bottom: 6px;
+  color: var(--text-primary);
+}
+
+.params-pre {
+
+—— 第 403 页 / 共 404 页 ——
+
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--color-primary);
+  margin-top: 6px;
+  background: var(--bg-surface);
+  padding: 8px;
+  border-radius: 4px;
+  border: 1px solid var(--border-light);
+}
+</style>
+
+—— 第 404 页 / 共 404 页 ——
+

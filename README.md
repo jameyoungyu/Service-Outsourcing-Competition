@@ -138,6 +138,17 @@ curl -X POST http://localhost:18000/api/v1/benchmark/run \
     │   └── system-architecture.md
     ├── handoff
     │   └── PHASE_0_GPT_TO_GEMINI.md
+    ├── experiments
+    │   ├── identifiability-ablation.md   # EXP-1.1 10 组种子离线消融
+    │   ├── self-benchmark.md             # EXP-2.1 产品内自评测基准
+    │   └── sensitivity-sweep.md          # EXP-3.0 200 工作点敏感性扫描
+    ├── innovation
+    │   └── differentiation-blueprint.md
+    ├── ip
+    │   ├── software-copyright/           # 软著登记材料
+    │   └── patent/技术交底书.md           # 专利技术交底（未做检索）
+    ├── manual
+    │   └── 用户手册.md                    # 产品使用手册
     ├── requirements
     │   ├── official-requirements.md
     │   ├── scope-freeze.md
@@ -184,6 +195,16 @@ cd frontend && npm run test:e2e     # 真实浏览器 + 真实后端的端到端
 E2E 不需要 Docker：`playwright.config.ts` 会自行拉起一个用完即弃的 SQLite 实例
 （`backend/scripts/serve_e2e.py`）与前端 preview 服务，跑的是同一套应用代码与同一批算法。
 PostgreSQL + Alembic 仍是唯一受支持的部署路径——E2E 跳过迁移，因此**不能**用它来证明迁移可用。
+
+## 文档索引
+
+| 文档 | 内容 |
+|---|---|
+| [产品使用手册](docs/manual/用户手册.md) | 安装、五分钟上手、逐页操作说明、如何读懂系统的判断、已知限制 |
+| [差异化创新蓝图](docs/innovation/differentiation-blueprint.md) | 7 个创新点与评分标准映射 |
+| [算法口径规范 ALG-0.2](docs/algorithms/algorithm-specification-v2.md) | 相对 `ALG-0.1` 的算法增量 |
+| [EXP-1.1 / EXP-2.1 / EXP-3.0](docs/experiments/) | 全部实验证据与原始数据，含不利结果 |
+| [知识产权材料](docs/ip/README.md) | 软著登记材料与专利技术交底书 |
 
 算法实现与基线结果见 [`docs/algorithms/phase-2-simulation-arx-baseline.md`](docs/algorithms/phase-2-simulation-arx-baseline.md)
 与 [`docs/algorithms/algorithm-specification-v2.md`](docs/algorithms/algorithm-specification-v2.md)；
