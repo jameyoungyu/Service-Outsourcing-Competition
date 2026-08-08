@@ -143,10 +143,12 @@ description: 全国大学生数学建模竞赛（CUMCM/国赛/高教社杯）全
 格式规范逐条见 `references/论文格式与评阅.md`。写完跑一次：
 
 ```bash
-python scripts/check_paper.py 论文.md --results results/results.json
+python scripts/check_paper.py 论文.md --results results/results.json --data data/
 ```
 
 它检查身份信息泄漏、摘要长度、页数估算、附录代码、参考文献引用闭合、数字溯源。
+`--data` 指向题目附件目录，让题给常数（单位利润、容量上限这些）也算合法出处——
+不加的话正文里每一个引用题目数据的数字都会被标出来，真正编造的那个反而被淹没。
 这些都是机械规则，交给脚本比人工核对可靠——把规范变成机制，而不是变成一条要记住的纪律。
 
 ## 三、参考资料

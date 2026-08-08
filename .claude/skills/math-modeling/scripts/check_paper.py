@@ -108,10 +108,20 @@ def split_keywords(raw: str) -> list[str]:
 HEADING_RE = re.compile(r"^\s{0,3}(#{1,6})\s*(.+?)\s*$|^\s*(?:[一二三四五六七八九十]+)\s*[、.]\s*(.+?)\s*$", re.M)
 
 
+def mask_code_blocks(text: str) -> str:
+    """把围栏代码块替换成等长空白，保持字符偏移不变。
+
+    附录里的 Python 注释以 # 开头，和 markdown 标题长得一模一样。不屏蔽的话，
+    「# 读取附件数据」会被当成一个新章节，把附录从中间劈开——于是脚本报告
+    「附录中没有找到源程序代码」这个根本不存在的资格风险。
+    """
+    return re.sub(r"```.*?```", lambda m: re.sub(r"[^\n]", " ", m.group(0)), text, flags=re.S)
+
+
 def split_sections(text: str) -> dict[str, str]:
     """按标题切分论文，返回 {标题: 正文}。标题匹配 markdown # 和"一、xxx"两种写法。"""
     marks: list[tuple[int, str]] = []
-    for m in HEADING_RE.finditer(text):
+    for m in HEADING_RE.finditer(mask_code_blocks(text)):
         title = (m.group(2) or m.group(3) or "").strip()
         if title:
             marks.append((m.start(), title))
@@ -196,7 +206,10 @@ def check_abstract(sections: dict[str, str], report: Report) -> None:
         report.add(DEDUCT, "摘要", f"摘要仅约 {chars} 字，篇幅明显不足，通常说明没有把各问的模型和结果讲清。")
 
     # 每问一段且每段有具体数字
-    paragraphs = [p for p in re.split(r"\n\s*\n", body) if len(re.sub(r"\s", "", p)) > 30]
+    paragraphs = [
+        p for p in re.split(r"\n\s*\n", body)
+        if len(re.sub(r"\s", "", p)) > 30 and "关键词" not in p
+    ]
     numeric = re.compile(r"\d+\.\d+|\d{2,}")
     weak = [p for p in paragraphs if not numeric.search(p)]
     if paragraphs and len(weak) == len(paragraphs):
@@ -386,8 +399,36 @@ def number_matches(paper_num: float, known: set[str]) -> bool:
     return False
 
 
-def check_number_provenance(text: str, sections: dict[str, str], results_path: Path | None, report: Report) -> None:
-    """论文里的结果型数字是否都能在 results.json 找到出处。"""
+def collect_data_numbers(paths: list[Path], report: Report) -> set[str]:
+    """收集题目附件里的数字。
+
+    论文正文会大量引用题目给定的常数（单位利润 44.0、单位消耗 2.8……），
+    这些数字天然不在 results.json 里。不把它们算作合法出处，溯源检查就会被
+    几十条误报淹没，真正编造的那一个反而看不见了。
+    """
+    known: set[str] = set()
+    for p in paths:
+        for f in sorted(p.rglob("*")) if p.is_dir() else [p]:
+            if f.suffix.lower() not in {".csv", ".tsv", ".json", ".txt"} or not f.is_file():
+                continue
+            try:
+                raw = normalize_minus(f.read_text(encoding="utf-8-sig", errors="replace"))
+            except OSError as e:
+                report.add(HINT, "数字溯源", f"读不了数据文件 {f}：{e}")
+                continue
+            for tok in re.findall(r"-?\d+(?:\.\d+)?", raw):
+                known.add(normalize_number(float(tok)))
+    return known
+
+
+def check_number_provenance(
+    text: str,
+    sections: dict[str, str],
+    results_path: Path | None,
+    report: Report,
+    data_paths: list[Path] | None = None,
+) -> None:
+    """论文里的结果型数字是否都能在 results.json（或题目附件）里找到出处。"""
     if results_path is None:
         report.add(
             HINT,
@@ -410,6 +451,13 @@ def check_number_provenance(text: str, sections: dict[str, str], results_path: P
     if not known:
         report.add(DEDUCT, "数字溯源", "结果文件里没有任何数字。")
         return
+
+    n_results = len(known)
+    n_data = 0
+    if data_paths:
+        data_known = collect_data_numbers(data_paths, report)
+        n_data = len(data_known - known)
+        known |= data_known
 
     # 只查最要命的区域：摘要和各问的结果/检验部分
     targets = {
@@ -448,13 +496,17 @@ def check_number_provenance(text: str, sections: dict[str, str], results_path: P
         )
 
     if not unexplained:
-        report.add(HINT, "数字溯源", f"通过：论文中的结果型数字均能在 results.json（共 {len(known)} 个数值）中找到出处。")
+        src = f"results.json（{n_results} 个数值）"
+        if n_data:
+            src += f" + 题目附件（另 {n_data} 个数值）"
+        report.add(HINT, "数字溯源", f"通过：论文中的结果型数字均能在 {src} 中找到出处。")
 
 
 # ---------------------------------------------------------------- 主流程
 
-def run_checks(text: str, results_path: Path | None) -> Report:
+def run_checks(text: str, results_path: Path | None, data_paths: list[Path] | None = None) -> Report:
     report = Report()
+    text = normalize_minus(text)
     sections = split_sections(text)
     check_identity(text, sections, report)
     check_abstract(sections, report)
@@ -463,7 +515,7 @@ def run_checks(text: str, results_path: Path | None) -> Report:
     check_references(text, sections, report)
     check_figures_tables(text, report)
     check_leftovers(text, report)
-    check_number_provenance(text, sections, results_path, report)
+    check_number_provenance(text, sections, results_path, report, data_paths)
     return report
 
 
@@ -501,6 +553,8 @@ def main() -> int:
     ap = argparse.ArgumentParser(description="国赛论文格式与数字溯源检查")
     ap.add_argument("paper", type=Path, help="论文文件（.md/.txt/.tex/.docx/.pdf）")
     ap.add_argument("--results", type=Path, default=None, help="results.json 路径，用于数字溯源")
+    ap.add_argument("--data", type=Path, nargs="*", default=None,
+                    help="题目附件（目录或 csv/json/txt 文件），其中的数字也算合法出处，避免题给常数被误报")
     ap.add_argument("--strict", action="store_true", help="存在任何扣分项也返回非零退出码")
     ap.add_argument("--json", action="store_true", help="以 JSON 输出，便于程序处理")
     args = ap.parse_args()
@@ -509,7 +563,7 @@ def main() -> int:
         sys.exit(f"论文文件不存在：{args.paper}")
 
     text = read_paper(args.paper)
-    report = run_checks(text, args.results)
+    report = run_checks(text, args.results, args.data)
 
     if args.json:
         print(json.dumps(
