@@ -164,10 +164,7 @@ def parse_csv(staged: StagedUpload) -> ParsedCsv:
     }
     nullable = {header: any(is_missing(row[header]) for row in rows) for header in headers}
     preview_rows = [
-        {
-            header: _display_value(row[header], inferred_types[header])
-            for header in headers
-        }
+        {header: _display_value(row[header], inferred_types[header]) for header in headers}
         for row in rows[:100]
     ]
     return ParsedCsv(
@@ -314,7 +311,11 @@ def _read_rows(reader: Iterable[list[str]], headers: list[str]) -> list[dict[str
             raise DatasetCsvError(
                 "INVALID_DATASET_SCHEMA",
                 "CSV 数据行字段数量与表头不一致。",
-                {"line": line_number, "expected_columns": len(headers), "actual_columns": len(values)},
+                {
+                    "line": line_number,
+                    "expected_columns": len(headers),
+                    "actual_columns": len(values),
+                },
             )
         rows.append(dict(zip(headers, (value.strip() for value in values), strict=True)))
     return rows

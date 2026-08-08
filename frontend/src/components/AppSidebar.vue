@@ -50,6 +50,11 @@
         <template #title>Agent 工作台</template>
       </el-menu-item>
 
+      <el-menu-item index="/benchmark">
+        <el-icon><Odometer /></el-icon>
+        <template #title>一键自评测基准</template>
+      </el-menu-item>
+
       <el-menu-item index="/deliverables">
         <el-icon><Document /></el-icon>
         <template #title>报告与交付中心</template>

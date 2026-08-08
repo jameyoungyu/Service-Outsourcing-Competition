@@ -26,9 +26,47 @@ class ArxFitRequest(Schema):
     ridge_alpha: float | None = Field(default=None, ge=0)
     train_ratio: float = Field(default=0.6, gt=0, lt=1)
     validation_ratio: float = Field(default=0.2, gt=0, lt=1)
+    # Restrict the training rows to specific sample indices, e.g. the output of
+    # quality-constrained D-optimal selection. Empty means "use every training row".
+    training_sample_indices: list[int] = Field(default_factory=list)
+    # Engineering priors. A model that violates them is rejected rather than reported,
+    # because a gain with the wrong sign is not a slightly worse model, it is a wrong one.
+    gain_sign: dict[str, Literal["positive", "negative"]] = Field(default_factory=dict)
+    gain_bounds: dict[str, tuple[float, float]] = Field(default_factory=dict)
+    require_stable: bool = False
 
     def resolved_estimator(self) -> Literal["ols", "ridge"]:
         return self.estimation_method or self.estimator
+
+
+class PriorViolation(Schema):
+    """One engineering prior the identified model failed."""
+
+    variable: str
+    kind: Literal["gain_sign", "gain_bounds", "stability"]
+    expected: str
+    actual: float | None = None
+
+
+class ModelValidationData(Schema):
+    """Control-relevant acceptance evidence.
+
+    ``free_run_fit`` is the primary metric: an APC controller predicts many steps ahead,
+    so one-step FIT — which is fed the measured previous output — flatters any model on an
+    autocorrelated process. ``one_step_fit`` is kept as a diagnostic, and a large
+    ``fit_gap`` is itself the signal that the model is coasting on persistence.
+    """
+
+    one_step_fit: float | None = None
+    free_run_fit: float | None = None
+    free_run_rmse: float | None = None
+    fit_gap: float | None = None
+    stable: bool = True
+    max_pole_modulus: float | None = None
+    steady_state_gains: dict[str, float] = Field(default_factory=dict)
+    residual_whiteness_ratio: float | None = None
+    n_samples: int = Field(default=0, ge=0)
+    partition: str = "validation"
 
 
 class ArxMetrics(Schema):
@@ -44,6 +82,12 @@ class ArxMetrics(Schema):
     rmse: float | None = None
     mae: float | None = None
     nrmse: float | None = None
+    # Free-run (infinite-step) simulation FIT per partition — the primary metric.
+    train_free_run_fit: float | None = None
+    val_free_run_fit: float | None = None
+    test_free_run_fit: float | None = None
+    aic: float | None = None
+    bic: float | None = None
 
 
 class SplitIndices(Schema):
@@ -79,3 +123,7 @@ class ArxFitData(Schema):
     plot_data: ArxPlotData
     residual_diagnostics: ArxResidualDiagnostics
     artifact_uri: str | None = None
+    validation: ModelValidationData | None = None
+    prior_violations: list[PriorViolation] = Field(default_factory=list)
+    training_rows: int = Field(default=0, ge=0)
+    free_run_series: list[float] = Field(default_factory=list)

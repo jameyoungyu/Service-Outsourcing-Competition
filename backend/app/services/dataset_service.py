@@ -97,7 +97,9 @@ async def upload_csv_dataset(
         )
         if existing is not None:
             discard_staged_upload(staged)
-            return UploadedDataset(summary=await _dataset_summary(session, existing), deduplicated=True)
+            return UploadedDataset(
+                summary=await _dataset_summary(session, existing), deduplicated=True
+            )
 
         dataset_id = uuid4()
         raw_path = move_to_immutable_storage(
@@ -202,7 +204,9 @@ async def list_dataset_summaries(
     )
 
 
-async def get_dataset_detail(session: AsyncSession, *, dataset_id: UUID, artifact_root: Path) -> DatasetDetail:
+async def get_dataset_detail(
+    session: AsyncSession, *, dataset_id: UUID, artifact_root: Path
+) -> DatasetDetail:
     dataset = await _dataset_or_404(session, dataset_id)
     version = await _active_version_or_error(session, dataset)
     columns = await _version_columns(session, version.id)
@@ -239,10 +243,16 @@ async def delete_dataset_asset(session: AsyncSession, *, dataset_id: UUID) -> No
 
     await _dataset_or_404(session, dataset_id)
     version_ids = select(DatasetVersionModel.id).where(DatasetVersionModel.dataset_id == dataset_id)
-    await session.execute(delete(DatasetProfileRecord).where(DatasetProfileRecord.dataset_id == dataset_id))
-    await session.execute(delete(DatasetColumnModel).where(DatasetColumnModel.dataset_id == dataset_id))
+    await session.execute(
+        delete(DatasetProfileRecord).where(DatasetProfileRecord.dataset_id == dataset_id)
+    )
+    await session.execute(
+        delete(DatasetColumnModel).where(DatasetColumnModel.dataset_id == dataset_id)
+    )
     await session.execute(delete(ProcessingRun).where(ProcessingRun.dataset_id == dataset_id))
-    await session.execute(delete(DatasetVersionModel).where(DatasetVersionModel.id.in_(version_ids)))
+    await session.execute(
+        delete(DatasetVersionModel).where(DatasetVersionModel.id.in_(version_ids))
+    )
     await session.execute(delete(DatasetModel).where(DatasetModel.id == dataset_id))
     await session.commit()
 
@@ -277,7 +287,9 @@ async def get_dataset_versions(session: AsyncSession, *, dataset_id: UUID) -> Da
         for version in versions
     ]
     edges = [
-        VersionEdge(source=version.parent_version_id, target=version.id, operation=version.operation_name)
+        VersionEdge(
+            source=version.parent_version_id, target=version.id, operation=version.operation_name
+        )
         for version in versions
         if version.parent_version_id is not None
     ]
@@ -312,7 +324,9 @@ async def configure_dataset_columns(
     by_name = {column.name: column for column in columns}
     timestamp = timestamp_columns[0]
     if by_name[timestamp].inferred_type != "datetime":
-        raise DatasetDomainError("TIMESTAMP_PARSE_FAILED", "指定的时间列不是可解析的 datetime 字段。")
+        raise DatasetDomainError(
+            "TIMESTAMP_PARSE_FAILED", "指定的时间列不是可解析的 datetime 字段。"
+        )
     for column in columns:
         column.role = roles[column.name]
         if column.name in units:
@@ -327,7 +341,9 @@ async def configure_dataset_columns(
     dataset.updated_at = datetime.now(UTC)
     await session.commit()
     return DatasetConfigData(
-        dataset=await get_dataset_detail(session, dataset_id=dataset.id, artifact_root=artifact_root),
+        dataset=await get_dataset_detail(
+            session, dataset_id=dataset.id, artifact_root=artifact_root
+        ),
         profile=_profile_schema(profile_payload),
     )
 
@@ -339,10 +355,16 @@ async def _dataset_summary(
     columns: Sequence[DatasetColumnModel] | None = None,
 ) -> DatasetSummary:
     active_version = await _active_version_or_error(session, dataset)
-    resolved_columns = list(columns) if columns is not None else await _version_columns(session, active_version.id)
-    time_column = next((column.name for column in resolved_columns if column.role == "timestamp"), None)
+    resolved_columns = (
+        list(columns) if columns is not None else await _version_columns(session, active_version.id)
+    )
+    time_column = next(
+        (column.name for column in resolved_columns if column.role == "timestamp"), None
+    )
     input_columns = [column.name for column in resolved_columns if column.role == "input"]
-    output_column = next((column.name for column in resolved_columns if column.role == "output"), None)
+    output_column = next(
+        (column.name for column in resolved_columns if column.role == "output"), None
+    )
     return DatasetSummary(
         id=dataset.id,
         name=dataset.name,
@@ -374,12 +396,18 @@ async def _dataset_or_404(session: AsyncSession, dataset_id: UUID) -> DatasetMod
     return record
 
 
-async def _active_version_or_error(session: AsyncSession, dataset: DatasetModel) -> DatasetVersionModel:
+async def _active_version_or_error(
+    session: AsyncSession, dataset: DatasetModel
+) -> DatasetVersionModel:
     if dataset.active_version_id is None:
-        raise DatasetDomainError("DATASET_VERSION_NOT_FOUND", "数据集没有激活版本。", status_code=404)
+        raise DatasetDomainError(
+            "DATASET_VERSION_NOT_FOUND", "数据集没有激活版本。", status_code=404
+        )
     version = await session.get(DatasetVersionModel, dataset.active_version_id)
     if version is None or version.dataset_id != dataset.id:
-        raise DatasetDomainError("DATASET_VERSION_NOT_FOUND", "数据集激活版本不存在。", status_code=404)
+        raise DatasetDomainError(
+            "DATASET_VERSION_NOT_FOUND", "数据集激活版本不存在。", status_code=404
+        )
     return version
 
 
@@ -405,7 +433,9 @@ async def _profile_or_error(
         )
     )
     if record is None:
-        raise DatasetDomainError("DATASET_PROFILE_NOT_FOUND", "数据集质量画像尚未生成。", status_code=404)
+        raise DatasetDomainError(
+            "DATASET_PROFILE_NOT_FOUND", "数据集质量画像尚未生成。", status_code=404
+        )
     return record
 
 
@@ -431,7 +461,9 @@ def _load_version_csv(
     try:
         return load_version_csv(dataset=dataset, version=version, artifact_root=artifact_root)
     except DatasetVersionArtifactError as error:
-        raise DatasetDomainError(error.code, error.message, status_code=404, details=error.details) from error
+        raise DatasetDomainError(
+            error.code, error.message, status_code=404, details=error.details
+        ) from error
 
 
 def _resolve_column_configuration(

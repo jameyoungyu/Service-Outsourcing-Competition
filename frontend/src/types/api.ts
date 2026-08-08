@@ -25,6 +25,15 @@ export interface SuccessEnvelope<T> {
 
 export type ApiResponse<T> = SuccessEnvelope<T> | ErrorEnvelope;
 
+/** Progress descriptor every long-running or completed stage returns. */
+export interface TaskResource {
+  task_id: string;
+  status: string;
+  stage: string;
+  progress: number;
+  message?: string | null;
+}
+
 // System API Types
 export interface LivenessData {
   status: string;
@@ -233,53 +242,148 @@ export interface SegmentItem {
   segment_id: string;
   start_index: number;
   end_index: number;
+  start_time?: string | null;
+  end_time?: string | null;
   snr_db: number;
   dynamic_score: number;
   recommendation: string;
+  /** Rank in the greedy selection order; 1 is the most informative segment. */
+  rank?: number | null;
+  /** Marginal Fisher-information gain contributed by this segment, in bits. */
+  information_gain_bits?: number | null;
+  cumulative_log_det?: number | null;
+  n_rows?: number | null;
+  missing_ratio?: number | null;
+  anomaly_ratio?: number | null;
+}
+
+/** One candidate window the quality gate scored, whether or not it survived. */
+export interface GatedWindow {
+  window_index: number;
+  start_index: number;
+  end_index: number;
+  missing_ratio: number;
+  anomaly_ratio: number;
+  snr_db: number;
+  input_activity: number;
+  output_activity: number;
+  accepted: boolean;
+  rejection_reasons: string[];
+}
+
+/** Information-theoretic outcome of the D-optimal stage. */
+export interface SelectionSummary {
+  candidate_count: number;
+  gated_count: number;
+  selected_count: number;
+  selected_rows: number;
+  coverage_ratio: number;
+  baseline_log_det: number;
+  selected_log_det: number;
+  information_retention: number | null;
+  evaluated_candidates: number;
+  naive_candidate_evaluations: number;
+  lazy_speedup: number;
+  stopped_reason: string;
+  budget_advisory: string | null;
+  condition_number: number | null;
+  excitation_satisfied: boolean;
+  persistent_excitation_order: Record<string, number>;
+  required_excitation_order: Record<string, number>;
+  rejection_counts: Record<string, number>;
+  noise_sigma: number;
 }
 
 export interface SegmentRequest {
-  dataset_id: string;
   version_id: string;
-  min_length?: number;
+  input_columns: string[];
+  output_column: string;
+  dataset_id?: string | null;
+  window_size?: number;
+  stride?: number;
+  max_segments?: number;
   min_snr_db?: number;
-  top_k?: number;
+  na?: number;
+  nb?: number;
+  nk?: number;
+  train_ratio?: number;
+  max_missing_ratio?: number;
+  max_anomaly_ratio?: number;
+  min_input_activity_ratio?: number;
+  min_information_gain_bits?: number;
 }
 
 export interface SegmentResponse {
-  dataset_id: string;
-  version_id: string;
+  source_version_id: string;
+  dataset_id: string | null;
+  task: TaskResource;
+  timestamps: string[];
+  series: Record<string, (number | null)[]>;
   segments: SegmentItem[];
-  selected_segment_ids: string[];
+  selection: SelectionSummary | null;
+  gated_windows: GatedWindow[];
+  selected_indices: number[];
+}
+
+export interface DelayPeak {
+  lag: number;
+  correlation: number;
+  confidence: number;
 }
 
 export interface DelayRequest {
-  dataset_id: string;
   version_id: string;
-  max_delay_steps?: number;
+  input_columns: string[];
+  output_column: string;
+  dataset_id?: string | null;
+  max_lag?: number;
+  top_k?: number;
 }
 
 export interface DelayResponse {
-  dataset_id: string;
-  version_id: string;
+  source_version_id: string;
+  dataset_id: string | null;
+  task: TaskResource;
   delays: number[];
+  /** Prewhitened cross-correlation curve per input, indexed by lag. */
   correlations: Record<string, number[]>;
-  recommended_delays: Record<string, number>;
+  best_delays: Record<string, number>;
+  candidate_peaks: Record<string, DelayPeak[]>;
+  /** Validation free-run FIT achieved by the refined delay set. */
+  validation_fit: number | null;
+  refinement_rounds: number;
+  /** Inputs whose top two candidates were too close to separate confidently. */
+  uncertain_columns: string[];
+  prewhitening_orders: Record<string, number>;
+}
+
+export interface VariableRecommendation {
+  variable: string;
+  action: "keep" | "drop" | "merge" | "review";
+  reason: string;
+  related_variables: string[];
 }
 
 export interface CollinearityRequest {
-  dataset_id: string;
   version_id: string;
+  input_columns: string[];
+  dataset_id?: string | null;
+  output_column?: string | null;
+  correlation_threshold?: number;
   vif_threshold?: number;
 }
 
 export interface CollinearityResponse {
-  dataset_id: string;
-  version_id: string;
+  source_version_id: string;
+  dataset_id: string | null;
+  task: TaskResource;
   variables: string[];
-  correlation_matrix: number[][];
+  matrix: number[][];
+  spearman_matrix: number[][];
   vif_scores: Record<string, number>;
-  recommended_drops: string[];
+  condition_number: number | null;
+  correlated_groups: string[][];
+  recommendations: VariableRecommendation[];
 }
 
 // Modeling & Optimization API Types
@@ -293,79 +397,286 @@ export interface ARXFitRequest {
   ridge_alpha?: number;
 }
 
+export interface ArxMetrics {
+  train_r2: number | null;
+  train_fit: number | null;
+  train_rmse: number | null;
+  val_r2: number | null;
+  val_fit: number | null;
+  val_rmse: number | null;
+  test_r2: number | null;
+  test_fit: number | null;
+  test_rmse: number | null;
+  rmse: number | null;
+  mae: number | null;
+  nrmse: number | null;
+  /** Free-run (infinite-step) simulation FIT — the primary acceptance metric. */
+  train_free_run_fit: number | null;
+  val_free_run_fit: number | null;
+  test_free_run_fit: number | null;
+  aic: number | null;
+  bic: number | null;
+}
+
+export interface ModelValidationData {
+  one_step_fit: number | null;
+  free_run_fit: number | null;
+  free_run_rmse: number | null;
+  /** one_step_fit - free_run_fit. A large gap means the model is coasting on persistence. */
+  fit_gap: number | null;
+  stable: boolean;
+  max_pole_modulus: number | null;
+  steady_state_gains: Record<string, number>;
+  residual_whiteness_ratio: number | null;
+  n_samples: number;
+  partition: string;
+}
+
+export interface PriorViolation {
+  variable: string;
+  kind: "gain_sign" | "gain_bounds" | "stability";
+  expected: string;
+  actual: number | null;
+}
+
+export interface SplitIndices {
+  train_end: number;
+  val_end: number;
+  test_end: number;
+}
+
 export interface ARXFitResponse {
   model_id: string;
+  task: TaskResource;
+  estimator: "ols" | "ridge";
+  dataset_id: string | null;
+  version_id: string | null;
+  coefficients: Record<string, number>;
   a_coefficients: number[];
   b_coefficients: Record<string, number[]>;
-  metrics: {
-    train_r2: number;
-    train_fit: number;
-    val_r2: number;
-    val_fit: number;
-    test_r2: number;
-    test_fit: number;
-    rmse: number;
-  };
+  metrics: ArxMetrics;
   plot_data: {
     indices: number[];
     y_true: number[];
     y_pred: number[];
     residuals: number[];
-    split_indices: { train: number; val: number; test: number };
+    splits: SplitIndices;
+    split_indices: SplitIndices | null;
   };
+  residual_diagnostics: {
+    acf_values: number[];
+    confidence_interval: number | null;
+  };
+  artifact_uri: string | null;
+  validation: ModelValidationData | null;
+  prior_violations: PriorViolation[];
+  training_rows: number;
+  /** Model output driven by inputs alone, aligned with plot_data.indices. */
+  free_run_series: number[];
 }
 
 export interface OptunaStartRequest {
-  dataset_id: string;
-  n_trials?: number;
-  target_metric?: "fit" | "r2" | "rmse";
+  version_id: string;
+  input_columns: string[];
+  output_column: string;
+  max_trials?: number;
+  timeout_seconds?: number | null;
   search_space?: Record<string, any>;
+  random_seed?: number;
 }
 
 export interface OptunaTrialItem {
   trial_id: number;
-  value: number;
+  /** Failed and pruned trials are returned too; they are never hidden. */
+  state: "queued" | "running" | "complete" | "pruned" | "failed";
+  value: number | null;
   params: Record<string, any>;
-  state: "COMPLETE" | "PRUNED" | "FAIL";
+  created_at: string;
+  finished_at: string | null;
+  error_code: string | null;
+}
+
+export interface OptunaStatistics {
+  hits: number;
+  misses: number;
+  lookups: number;
+  hit_rate: number;
+  entries: number;
+  total_trials: number;
+  completed_trials: number;
+  failed_trials: number;
+  pruned_trials: number;
+  mean_trial_ms: number;
+  warm_start_trials: number;
+  /** Model fits performed across all trials. */
+  structure_evaluations: number;
+  /** Distinct segment selections actually computed. */
+  selection_computations: number;
+  /** structure_evaluations / selection_computations — the amortisation factor. */
+  evaluations_per_selection: number;
 }
 
 export interface OptunaStatusResponse {
   study_id: string;
-  status: "RUNNING" | "COMPLETED" | "CANCELLED" | "FAILED";
-  current_trial: number;
-  total_trials: number;
-  best_value: number;
-  best_params: Record<string, any>;
+  task: TaskResource;
   trials: OptunaTrialItem[];
-  convergence_curve: number[];
+  best_trial_id: number | null;
+  best_value: number | null;
+  /** Best-so-far objective after each trial; monotone non-decreasing by construction. */
+  best_curve: (number | null)[];
   param_importances: Record<string, number>;
+  statistics: Partial<OptunaStatistics>;
+  best_params: Record<string, any>;
+  /** Set when this study reused parameters learned from a different dataset. */
+  warm_started_from: string | null;
 }
 
 // Copilot API Types
-export interface CopilotStepNode {
+export type AgentStepStatus =
+  | "pending"
+  | "running"
+  | "waiting_confirmation"
+  | "completed"
+  | "failed";
+
+export interface ExecutionPlanStep {
   step_id: string;
-  title: string;
-  tool_name: string;
-  status: "pending" | "running" | "waiting_confirmation" | "completed" | "failed";
-  requires_hitl: boolean;
-  impact_summary?: string | null;
+  tool: string;
+  depends_on: string[];
+  parameters: Record<string, any>;
+  requires_confirmation: boolean;
+  status: AgentStepStatus;
+}
+
+export interface ExecutionPlan {
+  goal: string;
+  dataset_id: string | null;
+  steps: ExecutionPlanStep[];
+  stop_conditions: string[];
+  assumptions: string[];
+}
+
+export interface ProofCheckData {
+  name: string;
+  passed: boolean;
+  detail: string;
+}
+
+/** Machine-checked evidence that the plan obeys the frozen safety rules. */
+export interface ComplianceProofData {
+  proof_id: string;
+  passed: boolean;
+  checks: ProofCheckData[];
+  signature: string;
+  code_version: string;
+  generated_at: string;
+}
+
+/** One executed step, carrying the real tool output rather than the agent's prose. */
+export interface AgentStepRun {
+  step_id: string;
+  tool: string;
+  status: AgentStepStatus;
+  parameters: Record<string, any>;
+  summary: string;
+  result: Record<string, any>;
+  duration_ms: number;
+  error_code: string | null;
 }
 
 export interface CopilotChatRequest {
-  prompt: string;
+  message: string;
   dataset_id?: string | null;
+  active_version_id?: string | null;
+  context?: Record<string, any>;
 }
 
 export interface CopilotChatResponse {
-  session_id: string;
-  reply_text: string;
-  plan_nodes: CopilotStepNode[];
-  active_step_id?: string | null;
+  copilot_run_id: string;
+  plan: ExecutionPlan;
+  task: TaskResource | null;
+  compliance: ComplianceProofData | null;
+  step_runs: AgentStepRun[];
+  conclusion: string;
+  executed: boolean;
+  /** "llm" means a model authored the plan and it then passed the same safety checks. */
+  plan_source: "llm" | "rule_based";
+  llm_provider: string;
+  llm_model: string;
+  /** Why the LLM plan was not used, when it was not. */
+  llm_fallback_reason: string | null;
 }
 
 export interface CopilotConfirmRequest {
-  session_id: string;
-  step_id: string;
+  copilot_run_id: string;
+  confirmation_id: string;
   approved: boolean;
-  custom_parameters?: Record<string, any>;
+  parameter_overrides?: Record<string, any>;
+  comment?: string | null;
+}
+
+// Delivery API Types (Phase 10)
+export interface ReportRequest {
+  dataset_id?: string | null;
+  version_id?: string | null;
+  study_id?: string | null;
+  title?: string;
+}
+
+export interface ReportSection {
+  key: string;
+  title: string;
+  body: string;
+}
+
+/** One number in the report, and the run record it was read from. */
+export interface ReportBinding {
+  placeholder: string;
+  kind: string;
+  run_id: string;
+  path: string;
+  value: string;
+  resolved: boolean;
+}
+
+export interface ReportResponse {
+  report_id: string;
+  dataset_id: string | null;
+  task: TaskResource;
+  title: string;
+  markdown: string;
+  sections: ReportSection[];
+  bindings: ReportBinding[];
+  unresolved: string[];
+  fully_resolved: boolean;
+  artifact_uri: string | null;
+  cited_runs: string[];
+  /** "llm" means a model wrote the commentary and it passed the numeral check. */
+  narration_source: string;
+  llm_provider: string;
+  llm_model: string;
+  llm_fallback_reason: string | null;
+  /** Drafts rejected for containing unbound digits before one was accepted. */
+  llm_rejected_attempts: number;
+}
+
+export interface ExportDatasetRequest {
+  version_id: string;
+  dataset_id?: string | null;
+  input_columns?: string[];
+  output_column?: string | null;
+  sample_indices?: number[];
+}
+
+export interface ExportDatasetResponse {
+  export_id: string;
+  dataset_id: string | null;
+  version_id: string;
+  task: TaskResource;
+  csv_uri: string;
+  manifest_uri: string;
+  exported_rows: number;
+  source_rows: number;
+  coverage_ratio: number;
+  columns: string[];
 }

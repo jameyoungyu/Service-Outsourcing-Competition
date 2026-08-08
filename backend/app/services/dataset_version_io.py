@@ -32,7 +32,9 @@ def load_version_csv(
     encoding = _string_parameter(version.parameters, "csv_encoding") or dataset.encoding
     delimiter = _string_parameter(version.parameters, "csv_delimiter") or dataset.delimiter
     if encoding is None or delimiter is None:
-        raise DatasetVersionArtifactError("DATASET_ARTIFACT_MISSING", "数据版本缺少 CSV 解析元数据。")
+        raise DatasetVersionArtifactError(
+            "DATASET_ARTIFACT_MISSING", "数据版本缺少 CSV 解析元数据。"
+        )
     try:
         return load_parsed_csv(
             artifact_root=artifact_root,
@@ -56,7 +58,13 @@ def write_derived_csv(
 ) -> tuple[str, str]:
     """Write a new immutable artifact once and return its relative path and digest."""
 
-    if any(len(values[column]) != len(timestamps) for column in headers):
+    # The timestamp column is regenerated from `timestamps` below rather than read from
+    # `values`, so it is deliberately excluded from the alignment check.
+    data_columns = [column for column in headers if column != timestamp_column]
+    missing = [column for column in data_columns if column not in values]
+    if missing:
+        raise ValueError(f"derived CSV is missing columns: {missing}")
+    if any(len(values[column]) != len(timestamps) for column in data_columns):
         raise ValueError("derived CSV columns must align with timestamps")
     relative_path = Path("derived") / str(dataset_id) / f"{version_id}.csv"
     destination = artifact_root / relative_path

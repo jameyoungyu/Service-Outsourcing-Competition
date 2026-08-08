@@ -1,141 +1,219 @@
 <template>
   <div class="delay-view">
     <div class="page-header">
-      <h2>多变量时滞分析与补偿 (Delay Estimation)</h2>
-      <p class="subtitle">通过输入输出 Lag-Correlation 交叉相关计算，准确估计并补偿多变量滞后步数</p>
+      <h2>时滞分析与补偿</h2>
+      <p class="subtitle">
+        预白化互相关生成候选（消除输入自相关造成的伪峰），再由验证集自由仿真 FIT 决定最终时滞
+      </p>
     </div>
 
     <div class="delay-layout">
-      <!-- Config -->
       <div class="industrial-card">
         <div class="industrial-card-header">
           <div class="industrial-card-title">
-            <el-icon><Timer /></el-icon> 时滞估计搜索空间配置
+            <el-icon><Timer /></el-icon> 时滞估计参数
           </div>
         </div>
 
-        <el-form :inline="true" :model="form">
-          <el-form-item label="最大搜寻滞后步数 τ_max">
-            <el-input-number v-model="form.max_delay_steps" :min="5" :max="50" :step="5" />
+        <el-form :inline="true" :model="form" label-width="110px">
+          <el-form-item label="数据版本 ID">
+            <el-input v-model="form.version_id" placeholder="version_id" style="width: 320px" />
+          </el-form-item>
+          <el-form-item label="输入变量">
+            <el-input v-model="inputColumnsText" placeholder="u1,u2" style="width: 200px" />
+          </el-form-item>
+          <el-form-item label="输出变量">
+            <el-input v-model="form.output_column" placeholder="y" style="width: 120px" />
+          </el-form-item>
+          <el-form-item label="最大滞后">
+            <el-input-number v-model="form.max_lag" :min="1" :max="1000" :step="5" />
+          </el-form-item>
+          <el-form-item label="候选数 K">
+            <el-input-number v-model="form.top_k" :min="1" :max="10" />
           </el-form-item>
           <el-form-item>
-            <el-button type="primary" :loading="loading" icon="Histogram" @click="handleCalculateDelay">
-              计算多变量 Lag-Correlation 曲线
+            <el-button type="primary" :loading="loading" icon="Search" @click="handleEstimate">
+              估计多变量时滞
             </el-button>
           </el-form-item>
         </el-form>
+
+        <el-alert v-if="errorMessage" type="error" :closable="false" show-icon class="alert-gap">
+          <template #title>时滞估计失败：{{ errorMessage }}</template>
+        </el-alert>
       </div>
 
-      <!-- Correlation Curve Chart -->
-      <div class="industrial-card" v-if="delayResult">
-        <div class="industrial-card-header">
-          <div class="industrial-card-title">
-            <el-icon><TrendCharts /></el-icon> 输入与输出 Lag-Correlation 滞后相关曲线
+      <template v-if="result">
+        <div class="industrial-card">
+          <div class="industrial-card-header">
+            <div class="industrial-card-title">
+              <el-icon><TrendCharts /></el-icon> 估计结论
+            </div>
+            <el-tag v-if="result.uncertain_columns.length" type="warning">
+              {{ result.uncertain_columns.join(", ") }} 时滞不确定，建议人工确认
+            </el-tag>
+            <el-tag v-else type="success">候选区分度良好</el-tag>
           </div>
+
+          <el-descriptions :column="3" border size="small">
+            <el-descriptions-item label="验证集自由仿真 FIT">
+              <span class="fit-val">{{ formatNumber(result.validation_fit) }}%</span>
+            </el-descriptions-item>
+            <el-descriptions-item label="精修轮次">
+              {{ result.refinement_rounds }}
+            </el-descriptions-item>
+            <el-descriptions-item label="预白化 AR 阶次">
+              {{ Object.entries(result.prewhitening_orders).map(([k, v]) => `${k}:${v}`).join(" / ") }}
+            </el-descriptions-item>
+          </el-descriptions>
+
+          <el-table :data="delayRows" stripe style="width: 100%; margin-top: 16px">
+            <el-table-column prop="column" label="输入变量" width="130" />
+            <el-table-column label="最终时滞 nk" width="140">
+              <template #default="{ row }">
+                <span class="fit-val">{{ row.refined }}</span>
+              </template>
+            </el-table-column>
+            <el-table-column label="互相关峰值位置" width="150">
+              <template #default="{ row }">{{ row.peak }}</template>
+            </el-table-column>
+            <el-table-column label="峰值相关系数" width="150">
+              <template #default="{ row }">{{ formatNumber(row.correlation) }}</template>
+            </el-table-column>
+            <el-table-column label="候选（lag / r）">
+              <template #default="{ row }">
+                <el-tag
+                  v-for="peak in row.candidates"
+                  :key="peak.lag"
+                  size="small"
+                  effect="plain"
+                  :type="peak.lag === row.refined ? 'success' : 'info'"
+                  class="candidate-tag"
+                >
+                  {{ peak.lag }} / {{ formatNumber(peak.correlation) }}
+                </el-tag>
+              </template>
+            </el-table-column>
+          </el-table>
         </div>
 
-        <ChartContainer :options="chartOptions" height="360px" />
-      </div>
-
-      <!-- Candidate Peak Table -->
-      <div class="industrial-card" v-if="delayResult">
-        <div class="industrial-card-header">
-          <div class="industrial-card-title">
-            <el-icon><Select /></el-icon> 推荐最佳滞后步数 Peak
+        <div class="industrial-card">
+          <div class="industrial-card-header">
+            <div class="industrial-card-title">
+              <el-icon><DataLine /></el-icon> 预白化互相关函数
+            </div>
           </div>
+          <ChartContainer :options="chartOptions" height="360px" />
+          <p class="chart-note">
+            纵轴为预白化后的互相关系数，峰值位置即为该输入的纯滞后估计。虚线为
+            95% 置信带；峰值落在带内说明该输入与输出的动态关联不显著。
+          </p>
         </div>
-
-        <el-descriptions border :column="2">
-          <el-descriptions-item label="变量 u1 推荐滞后 (d_u1)">
-            <el-tag type="success" effect="dark">5 步</el-tag> (最高相关系数 r = 0.88)
-          </el-descriptions-item>
-          <el-descriptions-item label="变量 u2 推荐滞后 (d_u2)">
-            <el-tag type="warning" effect="dark">8 步</el-tag> (最高相关系数 r = 0.76)
-          </el-descriptions-item>
-        </el-descriptions>
-
-        <div style="margin-top: 20px; display: flex; justify-content: space-between; align-items: center">
-          <el-button type="primary" icon="Check" @click="handleApplyDelay">
-            应用此时滞补偿并派生新数据版本 V3_Delayed
-          </el-button>
-          <el-button type="success" icon="ArrowRight" @click="$router.push('/preprocessing/collinearity')">
-            下一步: 共线性分析与变量剔除 ->
-          </el-button>
-        </div>
-      </div>
+      </template>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed } from "vue";
-import { Timer, Histogram, TrendCharts, Select, Check, ArrowRight } from "@element-plus/icons-vue";
+import { computed, reactive, ref } from "vue";
+import { DataLine, Search, Timer, TrendCharts } from "@element-plus/icons-vue";
 import ChartContainer from "../components/ChartContainer.vue";
 import { calculateDelay } from "../api/preprocessing";
 import type { DelayRequest, DelayResponse } from "../types/api";
+import { ApiError } from "../api/client";
 import { ElMessage } from "element-plus";
 
+const PALETTE = ["#2A9D8F", "#F4A261", "#1E6091", "#E76F51", "#8E7DBE", "#457B9D"];
+
 const loading = ref(false);
-const delayResult = ref<DelayResponse | null>(null);
+const result = ref<DelayResponse | null>(null);
+const errorMessage = ref("");
+const inputColumnsText = ref("u1,u2");
 
 const form = reactive<DelayRequest>({
-  dataset_id: "ds_s3_demo",
-  version_id: "V2_Segmented",
-  max_delay_steps: 20,
+  version_id: "",
+  input_columns: [],
+  output_column: "y",
+  max_lag: 30,
+  top_k: 3,
 });
 
-const handleCalculateDelay = async () => {
+const handleEstimate = async () => {
+  errorMessage.value = "";
+  if (!form.version_id) {
+    errorMessage.value = "请先填写数据版本 ID。";
+    return;
+  }
+  form.input_columns = inputColumnsText.value
+    .split(",")
+    .map((name) => name.trim())
+    .filter(Boolean);
+  if (!form.input_columns.length) {
+    errorMessage.value = "请至少指定一个输入变量。";
+    return;
+  }
+
   loading.value = true;
   try {
-    const res = await calculateDelay(form);
-    delayResult.value = res;
+    result.value = await calculateDelay(form);
+    ElMessage.success("时滞估计完成");
   } catch (err) {
-    // Mock fallback for Phase 1
-    delayResult.value = {
-      dataset_id: form.dataset_id,
-      version_id: form.version_id,
-      delays: Array.from({ length: 21 }, (_, i) => i),
-      correlations: {
-        u1: [0.1, 0.3, 0.5, 0.7, 0.82, 0.88, 0.75, 0.6, 0.4, 0.3, 0.2, 0.1, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-        u2: [0.05, 0.1, 0.2, 0.3, 0.45, 0.6, 0.7, 0.73, 0.76, 0.65, 0.5, 0.35, 0.2, 0.1, 0, 0, 0, 0, 0, 0, 0],
-      },
-      recommended_delays: { u1: 5, u2: 8 },
-    };
-    ElMessage.success("多变量时滞估计完成");
+    // No mock fallback: fabricated delays would be worse than no answer.
+    result.value = null;
+    errorMessage.value = err instanceof ApiError ? err.message : String(err);
   } finally {
     loading.value = false;
   }
 };
 
-const handleApplyDelay = () => {
-  ElMessage.success("已应用时滞补偿: u1 偏移 -5 步, u2 偏移 -8 步，生成版本 V3_Delayed");
-};
+const delayRows = computed(() => {
+  if (!result.value) return [];
+  return form.input_columns.map((column) => {
+    const candidates = result.value?.candidate_peaks[column] ?? [];
+    return {
+      column,
+      refined: result.value?.best_delays[column] ?? 0,
+      peak: candidates[0]?.lag ?? "—",
+      correlation: candidates[0]?.correlation ?? null,
+      candidates,
+    };
+  });
+});
 
-const chartOptions = computed(() => ({
-  tooltip: { trigger: "axis" },
-  legend: { data: ["u1 vs y (Peak at delay=5)", "u2 vs y (Peak at delay=8)"] },
-  grid: { left: "3%", right: "4%", bottom: "10%", containLabel: true },
-  xAxis: {
-    type: "category",
-    name: "滞后步数 (delay step)",
-    data: Array.from({ length: 21 }, (_, i) => `${i}`),
-  },
-  yAxis: { type: "value", name: "相关系数 r" },
-  series: [
-    {
-      name: "u1 vs y (Peak at delay=5)",
-      type: "line",
-      color: "#2A9D8F",
-      data: [0.1, 0.3, 0.5, 0.7, 0.82, 0.88, 0.75, 0.6, 0.4, 0.3, 0.2, 0.1, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+const chartOptions = computed(() => {
+  if (!result.value) return {};
+  const columns = Object.keys(result.value.correlations);
+  const maxLength = Math.max(...columns.map((c) => result.value!.correlations[c].length), 1);
+  return {
+    tooltip: { trigger: "axis" },
+    legend: { data: columns },
+    grid: { left: "3%", right: "4%", bottom: "10%", containLabel: true },
+    xAxis: {
+      type: "category",
+      name: "滞后步数",
+      data: Array.from({ length: maxLength }, (_, i) => `${i}`),
     },
-    {
-      name: "u2 vs y (Peak at delay=8)",
+    yAxis: { type: "value", name: "预白化互相关 r" },
+    series: columns.map((column, index) => ({
+      name: column,
       type: "line",
-      color: "#F4A261",
-      data: [0.05, 0.1, 0.2, 0.3, 0.45, 0.6, 0.7, 0.73, 0.76, 0.65, 0.5, 0.35, 0.2, 0.1, 0, 0, 0, 0, 0, 0, 0],
-    },
-  ],
-}));
+      showSymbol: false,
+      color: PALETTE[index % PALETTE.length],
+      data: result.value!.correlations[column],
+      markLine: {
+        symbol: "none",
+        silent: true,
+        lineStyle: { type: "dashed", color: PALETTE[index % PALETTE.length] },
+        data: [{ xAxis: String(result.value!.best_delays[column] ?? 0) }],
+      },
+    })),
+  };
+});
+
+const formatNumber = (value: number | null | undefined) => {
+  if (value === null || value === undefined || !Number.isFinite(value)) return "—";
+  return value.toFixed(3);
+};
 </script>
 
 <style scoped>
@@ -153,5 +231,26 @@ const chartOptions = computed(() => ({
   display: flex;
   flex-direction: column;
   gap: 20px;
+}
+
+.fit-val {
+  font-weight: 600;
+  color: var(--color-primary);
+  font-family: var(--font-mono);
+}
+
+.alert-gap {
+  margin-top: 12px;
+}
+
+.candidate-tag {
+  margin-right: 4px;
+}
+
+.chart-note {
+  margin-top: 10px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  line-height: 1.6;
 }
 </style>

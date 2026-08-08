@@ -2,7 +2,7 @@
   <div class="simulation-view">
     <div class="page-header">
       <h2>仿真测试集生成器 (Simulation Benchmark Generator)</h2>
-      <p class="subtitle">在线构造带有精确真值 (Ground Truth) 的工业时序 S1-S5 测试场景，建立辨识算法基线</p>
+      <p class="subtitle">在线构造带有精确真值 (Ground Truth) 的工业时序 S1-S6 测试场景，建立辨识算法基线</p>
     </div>
 
     <div class="simulation-layout">
@@ -22,6 +22,7 @@
               <el-radio-button label="S3">S3 长稳态短动态</el-radio-button>
               <el-radio-button label="S4">S4 强噪声与异常污染</el-radio-button>
               <el-radio-button label="S5">S5 高共线性输入</el-radio-button>
+              <el-radio-button label="S6">S6 异构激励压力测试</el-radio-button>
             </el-radio-group>
           </el-form-item>
 

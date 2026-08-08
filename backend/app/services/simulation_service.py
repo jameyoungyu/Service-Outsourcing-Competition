@@ -208,7 +208,7 @@ def _resolved_sample_count(payload: SimulationGenerateRequest) -> int:
 def _resolved_input_count(payload: SimulationGenerateRequest) -> int:
     if payload.scenario == "S1":
         return 1
-    if payload.scenario in {"S2", "S3", "S4", "S5"}:
+    if payload.scenario in {"S2", "S3", "S4", "S5", "S6"}:
         return min(4, max(2, payload.input_count))
     return payload.input_count
 
@@ -218,7 +218,7 @@ def _resolved_noise_level(payload: SimulationGenerateRequest) -> float:
         return payload.noise_level
     if payload.noise_sigma is not None:
         return payload.noise_sigma
-    return {"S1": 0.01, "S2": 0.03, "S3": 0.03, "S4": 0.2, "S5": 0.02}[payload.scenario]
+    return {"S1": 0.01, "S2": 0.03, "S3": 0.03, "S4": 0.2, "S5": 0.02, "S6": 0.03}[payload.scenario]
 
 
 def _resolved_missing_rate(payload: SimulationGenerateRequest) -> float:
@@ -237,6 +237,8 @@ def _scenario_inputs(
 ) -> tuple[dict[str, FloatArray], list[tuple[int, int, str]]]:
     if scenario == "S3":
         return _long_steady_inputs(n_samples, input_count, generator)
+    if scenario == "S6":
+        return _heterogeneous_inputs(n_samples, input_count, generator)
     if scenario == "S5":
         base = _piecewise_input(n_samples, generator, change_every=17)
         inputs = {"u1": base}
@@ -255,6 +257,60 @@ def _scenario_inputs(
         },
         [(0, n_samples - 1, "persistent_excitation")],
     )
+
+
+def _heterogeneous_inputs(
+    n_samples: int,
+    input_count: int,
+    generator: np.random.Generator,
+) -> tuple[dict[str, FloatArray], list[tuple[int, int, str]]]:
+    """Long steady record whose excitation is concentrated on the first input.
+
+    Real plant historians look like this: operators step one valve repeatedly during a
+    campaign and touch the others rarely, so the visually dramatic moves cluster on a single
+    variable. A selection rule that ranks segments by magnitude spends its whole budget on
+    those moves and leaves the remaining inputs barely excited, which makes their
+    coefficients unidentifiable no matter how clean the data looks.
+    """
+
+    inputs = {
+        f"u{position}": np.zeros(n_samples, dtype=float) for position in range(1, input_count + 1)
+    }
+    segments: list[tuple[int, int, str]] = []
+    width = max(20, int(n_samples * 0.012))
+    plan: list[tuple[float, str, str, float]] = [
+        (0.06, "step", "u1", 1.60),
+        (0.14, "step", "u1", 1.55),
+        (0.22, "ramp", "u2", 0.65),
+        (0.30, "step", "u1", 1.50),
+        (0.38, "pulse", "u1", 1.58),
+        (0.46, "step", "u3", 0.60),
+        (0.54, "step", "u1", 1.52),
+        (0.62, "pulse", "u2", 0.62),
+        (0.70, "ramp", "u1", 1.56),
+        (0.78, "step", "u3", 0.58),
+    ]
+    for fraction, kind, column, scale in plan:
+        if column not in inputs:
+            continue
+        start = int(n_samples * fraction)
+        end = min(n_samples, start + width)
+        if end - start < 2:
+            continue
+        amplitude = (
+            scale * float(generator.uniform(0.85, 1.15)) * float(generator.choice([-1.0, 1.0]))
+        )
+        signal = inputs[column]
+        if kind == "step":
+            signal[start:end] = amplitude
+        elif kind == "ramp":
+            signal[start:end] = np.linspace(0.0, amplitude, end - start)
+        else:
+            middle = start + (end - start) // 2
+            signal[start:middle] = amplitude
+            signal[middle:end] = -0.4 * amplitude
+        segments.append((start, end - 1, f"{kind}_{column}"))
+    return inputs, segments
 
 
 def _piecewise_input(

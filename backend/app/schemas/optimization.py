@@ -40,3 +40,8 @@ class OptimizationStatusData(Schema):
     best_value: float | None = None
     best_curve: list[float | None]
     param_importances: dict[str, float]
+    # Cache-hit rate, trial counts and timings — the phase-8 acceptance evidence.
+    statistics: dict[str, Any] = Field(default_factory=dict)
+    best_params: dict[str, Any] = Field(default_factory=dict)
+    # Set when this study reused parameters learned from a different dataset.
+    warm_started_from: UUID | None = None

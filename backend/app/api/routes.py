@@ -7,14 +7,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import get_settings
 from app.core.db import database_is_ready, get_session, redis_is_ready
 from app.core.errors import AppError
+from app.schemas.benchmark import BenchmarkData, BenchmarkRequest
 from app.schemas.common import ErrorEnvelope, SuccessEnvelope
 from app.schemas.copilot import (
     CopilotChatData,
     CopilotChatRequest,
     CopilotConfirmData,
     CopilotConfirmRequest,
-    ExecutionPlan,
-    ExecutionPlanStep,
 )
 from app.schemas.datasets import (
     DatasetConfigData,
@@ -45,10 +44,19 @@ from app.schemas.preprocessing import (
     SegmentData,
     SegmentRequest,
 )
+from app.schemas.reporting import (
+    ExportDatasetData,
+    ExportDatasetRequest,
+    ReportData,
+    ReportRequest,
+)
 from app.schemas.simulation import SimulationGenerateData, SimulationGenerateRequest
 from app.schemas.system import LivenessData, ReadinessData, SystemInfoData
 from app.schemas.tasks import CancelTaskData
-from app.services.contract_stubs import completed_task, new_id, queued_task
+from app.services.agent_service import AgentDomainError, run_copilot
+from app.services.benchmark_service import BenchmarkDomainError, run_benchmark
+from app.services.cleaning_service import CleaningDomainError, clean_dataset_version
+from app.services.contract_stubs import completed_task, queued_task
 from app.services.dataset_service import (
     DatasetDomainError,
     configure_dataset_columns,
@@ -63,8 +71,23 @@ from app.services.dataset_service import (
 from app.services.dataset_service import (
     get_dataset_versions as get_dataset_versions_service,
 )
-from app.services.identification_service import ArxDomainError
-from app.services.identification_service import fit_arx as fit_arx_service
+from app.services.modeling_service import ModelingDomainError, fit_arx_on_version
+from app.services.optimization_service import (
+    OptimizationDomainError,
+    get_optimization_status,
+    start_optimization_study,
+)
+from app.services.preprocessing_analysis_service import (
+    AnalysisDomainError,
+    run_collinearity_analysis,
+    run_delay_estimation,
+)
+from app.services.report_service import (
+    ReportDomainError,
+    export_optimised_dataset,
+    generate_report,
+)
+from app.services.segment_service import SegmentDomainError, select_dynamic_segments
 from app.services.simulation_service import generate_simulation as generate_simulation_service
 
 router = APIRouter()
@@ -345,16 +368,27 @@ async def get_dataset_versions(
     response_model=SuccessEnvelope[CleanData],
     responses=ERROR_RESPONSES,
 )
-async def clean_data(request: Request, payload: CleanRequest) -> SuccessEnvelope[CleanData]:
-    return success(
-        request,
-        CleanData(
-            source_version_id=payload.version_id,
-            derived_version_id=new_id(),
-            task=queued_task(stage="clean_data"),
-            series=[],
-        ),
-    )
+async def clean_data(
+    request: Request,
+    payload: CleanRequest,
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> SuccessEnvelope[CleanData]:
+    """Run the real cleaning pipeline and register an immutable derived version."""
+
+    try:
+        data = await clean_dataset_version(
+            session,
+            payload=payload,
+            artifact_root=get_settings().artifact_root,
+        )
+    except CleaningDomainError as error:
+        raise AppError(
+            error.code,
+            error.message,
+            status_code=error.status_code,
+            details=error.details,
+        ) from error
+    return success(request, data)
 
 
 @router.post(
@@ -365,17 +399,27 @@ async def clean_data(request: Request, payload: CleanRequest) -> SuccessEnvelope
     response_model=SuccessEnvelope[SegmentData],
     responses=ERROR_RESPONSES,
 )
-async def segment_data(request: Request, payload: SegmentRequest) -> SuccessEnvelope[SegmentData]:
-    return success(
-        request,
-        SegmentData(
-            source_version_id=payload.version_id,
-            task=queued_task(stage="detect_dynamic_segments"),
-            timestamps=[],
-            series={},
-            segments=[],
-        ),
-    )
+async def segment_data(
+    request: Request,
+    payload: SegmentRequest,
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> SuccessEnvelope[SegmentData]:
+    """Gate candidate windows on quality, then select by D-optimal information gain."""
+
+    try:
+        data = await select_dynamic_segments(
+            session,
+            payload=payload,
+            artifact_root=get_settings().artifact_root,
+        )
+    except SegmentDomainError as error:
+        raise AppError(
+            error.code,
+            error.message,
+            status_code=error.status_code,
+            details=error.details,
+        ) from error
+    return success(request, data)
 
 
 @router.post(
@@ -386,18 +430,27 @@ async def segment_data(request: Request, payload: SegmentRequest) -> SuccessEnve
     response_model=SuccessEnvelope[DelayData],
     responses=ERROR_RESPONSES,
 )
-async def estimate_delay(request: Request, payload: DelayRequest) -> SuccessEnvelope[DelayData]:
-    return success(
-        request,
-        DelayData(
-            source_version_id=payload.version_id,
-            task=queued_task(stage="estimate_delays"),
-            delays=[],
-            correlations={column: [] for column in payload.input_columns},
-            best_delays={},
-            candidate_peaks={},
-        ),
-    )
+async def estimate_delay(
+    request: Request,
+    payload: DelayRequest,
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> SuccessEnvelope[DelayData]:
+    """Prewhitened cross-correlation candidates, refined on the validation split."""
+
+    try:
+        data = await run_delay_estimation(
+            session,
+            payload=payload,
+            artifact_root=get_settings().artifact_root,
+        )
+    except AnalysisDomainError as error:
+        raise AppError(
+            error.code,
+            error.message,
+            status_code=error.status_code,
+            details=error.details,
+        ) from error
+    return success(request, data)
 
 
 @router.post(
@@ -409,20 +462,26 @@ async def estimate_delay(request: Request, payload: DelayRequest) -> SuccessEnve
     responses=ERROR_RESPONSES,
 )
 async def analyze_collinearity(
-    request: Request, payload: CollinearityRequest
+    request: Request,
+    payload: CollinearityRequest,
+    session: Annotated[AsyncSession, Depends(get_session)],
 ) -> SuccessEnvelope[CollinearityData]:
-    return success(
-        request,
-        CollinearityData(
-            source_version_id=payload.version_id,
-            task=queued_task(stage="analyze_collinearity"),
-            variables=payload.input_columns,
-            matrix=[],
-            vif_scores={},
-            condition_number=None,
-            recommendations=[],
-        ),
-    )
+    """Pearson, Spearman, VIF and condition number with advisory recommendations."""
+
+    try:
+        data = await run_collinearity_analysis(
+            session,
+            payload=payload,
+            artifact_root=get_settings().artifact_root,
+        )
+    except AnalysisDomainError as error:
+        raise AppError(
+            error.code,
+            error.message,
+            status_code=error.status_code,
+            details=error.details,
+        ) from error
+    return success(request, data)
 
 
 @router.post(
@@ -432,34 +491,27 @@ async def analyze_collinearity(
     response_model=SuccessEnvelope[ArxFitData],
     responses=ERROR_RESPONSES,
 )
-async def fit_arx(request: Request, payload: ArxFitRequest) -> SuccessEnvelope[ArxFitData]:
+async def fit_arx(
+    request: Request,
+    payload: ArxFitRequest,
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> SuccessEnvelope[ArxFitData]:
+    """Identify ARX on any version and accept it on free-run FIT, stability and priors."""
+
     try:
-        result = fit_arx_service(payload, artifact_root=get_settings().artifact_root)
-    except ArxDomainError as error:
-        status_code = 404 if error.code in {"DATASET_VERSION_NOT_FOUND"} else 400
+        data = await fit_arx_on_version(
+            session,
+            payload=payload,
+            artifact_root=get_settings().artifact_root,
+        )
+    except ModelingDomainError as error:
         raise AppError(
             error.code,
             error.message,
-            status_code=status_code,
+            status_code=error.status_code,
             details=error.details,
         ) from error
-    return success(
-        request,
-        ArxFitData(
-            model_id=result.model_id,
-            task=completed_task(stage="fit_arx", message="ARX 基线辨识与多分区评价已完成。"),
-            estimator=result.estimator,
-            dataset_id=result.dataset_id,
-            version_id=result.version_id,
-            coefficients=result.coefficients,
-            a_coefficients=result.a_coefficients,
-            b_coefficients=result.b_coefficients,
-            metrics=result.metrics,
-            plot_data=result.plot_data,
-            residual_diagnostics=result.residual_diagnostics,
-            artifact_uri=result.artifact_uri,
-        ),
-    )
+    return success(request, data)
 
 
 @router.post(
@@ -471,12 +523,26 @@ async def fit_arx(request: Request, payload: ArxFitRequest) -> SuccessEnvelope[A
     responses=ERROR_RESPONSES,
 )
 async def start_optimization(
-    request: Request, payload: OptimizationStartRequest
+    request: Request,
+    payload: OptimizationStartRequest,
+    session: Annotated[AsyncSession, Depends(get_session)],
 ) -> SuccessEnvelope[OptimizationStartData]:
-    return success(
-        request,
-        OptimizationStartData(study_id=new_id(), task=queued_task(stage="optimize_pipeline")),
-    )
+    """Run the closed loop: gate, select, identify, score on free-run FIT, repeat."""
+
+    try:
+        data = await start_optimization_study(
+            session,
+            payload=payload,
+            artifact_root=get_settings().artifact_root,
+        )
+    except OptimizationDomainError as error:
+        raise AppError(
+            error.code,
+            error.message,
+            status_code=error.status_code,
+            details=error.details,
+        ) from error
+    return success(request, data)
 
 
 @router.get(
@@ -487,20 +553,20 @@ async def start_optimization(
     responses=ERROR_RESPONSES,
 )
 async def optimization_status(
-    request: Request, study_id: Annotated[UUID, Path(description="Optuna study UUID。")]
+    request: Request,
+    study_id: Annotated[UUID, Path(description="Optuna study UUID。")],
+    session: Annotated[AsyncSession, Depends(get_session)],
 ) -> SuccessEnvelope[OptimizationStatusData]:
-    return success(
-        request,
-        OptimizationStatusData(
-            study_id=study_id,
-            task=queued_task(stage="optimize_pipeline"),
-            trials=[],
-            best_trial_id=None,
-            best_value=None,
-            best_curve=[],
-            param_importances={},
-        ),
-    )
+    try:
+        data = await get_optimization_status(session, study_id=study_id)
+    except OptimizationDomainError as error:
+        raise AppError(
+            error.code,
+            error.message,
+            status_code=error.status_code,
+            details=error.details,
+        ) from error
+    return success(request, data)
 
 
 @router.post(
@@ -527,22 +593,26 @@ async def cancel_task(
     responses=ERROR_RESPONSES,
 )
 async def copilot_chat(
-    request: Request, payload: CopilotChatRequest
+    request: Request,
+    payload: CopilotChatRequest,
+    session: Annotated[AsyncSession, Depends(get_session)],
 ) -> SuccessEnvelope[CopilotChatData]:
-    plan = ExecutionPlan(
-        goal=payload.message,
-        dataset_id=payload.dataset_id,
-        steps=[
-            ExecutionPlanStep(
-                step_id="profile",
-                tool="profile_dataset",
-                depends_on=[],
-                requires_confirmation=False,
-            )
-        ],
-        assumptions=["阶段 1 返回经白名单校验的计划骨架，不会执行算法。"],
-    )
-    return success(request, CopilotChatData(copilot_run_id=new_id(), plan=plan, task=None))
+    """Plan from natural language, verify statically, then execute whitelisted tools."""
+
+    try:
+        data = await run_copilot(
+            session,
+            payload=payload,
+            artifact_root=get_settings().artifact_root,
+        )
+    except AgentDomainError as error:
+        raise AppError(
+            error.code,
+            error.message,
+            status_code=error.status_code,
+            details=error.details,
+        ) from error
+    return success(request, data)
 
 
 @router.post(
@@ -566,3 +636,91 @@ async def copilot_confirm(
             ),
         ),
     )
+
+
+@router.post(
+    "/reports/generate",
+    tags=["Delivery"],
+    summary="Generate a provenance-bound report where every number cites its run",
+    response_model=SuccessEnvelope[ReportData],
+    responses=ERROR_RESPONSES,
+)
+async def generate_report_route(
+    request: Request,
+    payload: ReportRequest,
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> SuccessEnvelope[ReportData]:
+    """Compose from persisted runs; a draft with a bare numeral is rejected, not rendered."""
+
+    try:
+        data = await generate_report(
+            session,
+            payload=payload,
+            artifact_root=get_settings().artifact_root,
+        )
+    except ReportDomainError as error:
+        raise AppError(
+            error.code,
+            error.message,
+            status_code=error.status_code,
+            details=error.details,
+        ) from error
+    return success(request, data)
+
+
+@router.post(
+    "/delivery/export",
+    tags=["Delivery"],
+    summary="Export the closed-loop selected rows as CSV plus a provenance manifest",
+    response_model=SuccessEnvelope[ExportDatasetData],
+    responses=ERROR_RESPONSES,
+)
+async def export_dataset_route(
+    request: Request,
+    payload: ExportDatasetRequest,
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> SuccessEnvelope[ExportDatasetData]:
+    try:
+        data = await export_optimised_dataset(
+            session,
+            payload=payload,
+            artifact_root=get_settings().artifact_root,
+        )
+    except ReportDomainError as error:
+        raise AppError(
+            error.code,
+            error.message,
+            status_code=error.status_code,
+            details=error.details,
+        ) from error
+    return success(request, data)
+
+
+@router.post(
+    "/benchmark/run",
+    tags=["Delivery"],
+    summary="Run the built-in ablation suite and return freshly measured results",
+    response_model=SuccessEnvelope[BenchmarkData],
+    responses=ERROR_RESPONSES,
+)
+async def run_benchmark_route(
+    request: Request,
+    payload: BenchmarkRequest,
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> SuccessEnvelope[BenchmarkData]:
+    """Every number is computed during this request; nothing is cached or hard-coded."""
+
+    try:
+        data = await run_benchmark(
+            session,
+            payload=payload,
+            artifact_root=get_settings().artifact_root,
+        )
+    except BenchmarkDomainError as error:
+        raise AppError(
+            error.code,
+            error.message,
+            status_code=error.status_code,
+            details=error.details,
+        ) from error
+    return success(request, data)

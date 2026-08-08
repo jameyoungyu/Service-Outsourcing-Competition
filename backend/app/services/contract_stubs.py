@@ -11,7 +11,12 @@ def now() -> datetime:
     return datetime.now(UTC)
 
 
-def queued_task(*, status: TaskState = "queued", stage: str = "queued") -> TaskResource:
+def queued_task(
+    *,
+    status: TaskState = "queued",
+    stage: str = "queued",
+    message: str = "阶段 1 契约骨架：任务尚未接入实际算法。",
+) -> TaskResource:
     created_at = now()
     return TaskResource(
         id=uuid4(),
@@ -21,7 +26,7 @@ def queued_task(*, status: TaskState = "queued", stage: str = "queued") -> TaskR
             total=1,
             percent=0,
             stage=stage,
-            message="阶段 1 契约骨架：任务尚未接入实际算法。",
+            message=message,
         ),
         created_at=created_at,
     )

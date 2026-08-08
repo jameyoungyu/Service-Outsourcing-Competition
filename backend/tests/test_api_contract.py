@@ -94,21 +94,71 @@ def test_openapi_contains_all_phase_one_paths() -> None:
     assert schema["openapi"] == "3.1.0"
 
 
-def test_copilot_contract_has_a_whitelisted_plan() -> None:
-    with TestClient(create_app()) as client:
+def test_copilot_contract_has_a_whitelisted_plan(tmp_path, monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    # The agent persists its plan, proof and step records, so it needs a session.
+    import asyncio
+    from collections.abc import AsyncIterator
+
+    from app.core.db import get_session
+    from app.models import Base
+    from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+
+    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'copilot.db'}")
+    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+
+    async def prepare() -> None:
+        async with engine.begin() as connection:
+            await connection.run_sync(Base.metadata.create_all)
+
+    asyncio.run(prepare())
+
+    async def session_override() -> AsyncIterator[AsyncSession]:
+        async with session_factory() as session:
+            yield session
+
+    monkeypatch.setattr("app.api.routes.get_settings", lambda: Settings(artifact_root=tmp_path))
+    app = create_app()
+    app.dependency_overrides[get_session] = session_override
+    with TestClient(app) as client:
         response = client.post(
             "/api/v1/copilot/chat",
             json={"message": "先做数据质量诊断", "dataset_id": str(uuid4())},
         )
 
     assert response.status_code == 200
-    plan = response.json()["data"]["plan"]
+    body = response.json()["data"]
+    plan = body["plan"]
     assert plan["steps"][0]["tool"] == "profile_dataset"
+    assert body["compliance"]["passed"] is True
+    asyncio.run(engine.dispose())
 
 
 def test_api_runs_real_simulation_and_arx_baseline(tmp_path, monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    # The ARX route persists a ProcessingRun for report lineage, so it needs a session.
+    import asyncio
+    from collections.abc import AsyncIterator
+
+    from app.core.db import get_session
+    from app.models import Base
+    from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+
+    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'contract.db'}")
+    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+
+    async def prepare() -> None:
+        async with engine.begin() as connection:
+            await connection.run_sync(Base.metadata.create_all)
+
+    asyncio.run(prepare())
+
+    async def session_override() -> AsyncIterator[AsyncSession]:
+        async with session_factory() as session:
+            yield session
+
     monkeypatch.setattr("app.api.routes.get_settings", lambda: Settings(artifact_root=tmp_path))
-    with TestClient(create_app()) as client:
+    app = create_app()
+    app.dependency_overrides[get_session] = session_override
+    with TestClient(app) as client:
         simulation = client.post(
             "/api/v1/simulation/generate",
             json={
